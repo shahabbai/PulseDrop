@@ -1,0 +1,352 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PulseDrop</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style id="boot-style">
+      #boot-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: #eaf6ff;
+        background: #020817;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #boot-screen strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 1.35rem;
+      }
+
+      #boot-screen span {
+        color: #8ca8c7;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot-screen">
+      <div>
+        <strong>PulseDrop is loading</strong>
+        <span>Starting the transfer interface...</span>
+      </div>
+    </div>
+
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-send" viewBox="0 0 24 24">
+        <path d="m22 2-7 20-4-9-9-4 20-7Z"></path>
+        <path d="M22 2 11 13"></path>
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 3v12"></path>
+        <path d="m7 10 5 5 5-5"></path>
+        <path d="M5 21h14"></path>
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path>
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24">
+        <path d="m8 5 11 7-11 7Z"></path>
+      </symbol>
+      <symbol id="icon-stop" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18"></path>
+        <path d="M8 6V4h8v2"></path>
+        <path d="M19 6 18 20H6L5 6"></path>
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14"></path>
+        <path d="M5 12h14"></path>
+      </symbol>
+      <symbol id="icon-arrow-left" viewBox="0 0 24 24">
+        <path d="M19 12H5"></path>
+        <path d="m12 19-7-7 7-7"></path>
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="m9 18 6-6-6-6"></path>
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      </symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24">
+        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.68 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.16 1.16 0 0 1 1.52 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1Z"></path>
+      </symbol>
+      <symbol id="icon-wifi" viewBox="0 0 24 24">
+        <path d="M5 13a10 10 0 0 1 14 0"></path>
+        <path d="M8.5 16.5a5 5 0 0 1 7 0"></path>
+        <path d="M12 20h.01"></path>
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+        <path d="M3 21v-5h5"></path>
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+        <path d="M16 8h5V3"></path>
+      </symbol>    </svg>
+
+    <main class="app-shell" id="app-shell" data-view="home">
+      <section class="home-screen" id="home-screen" aria-label="Choose transfer mode">
+        <button class="settings-fab" type="button" id="home-settings" data-mode="settings" title="Settings" aria-label="Settings">
+          <svg class="icon"><use href="#icon-settings"></use></svg>
+        </button>
+        <div class="mode-actions">
+          <button class="mode-button mode-send-button" type="button" id="home-send" data-mode="send" aria-label="Send files">
+            <span class="mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 96 96">
+                <path class="file-shape" d="M24 18h31l17 17v43H24Z"></path>
+                <path class="file-fold" d="M55 18v18h17"></path>
+                <path class="pulse-line" d="M31 54h12l5-15 8 29 6-14h7"></path>
+                <path class="mode-arrow" d="M72 77V50"></path>
+                <path class="mode-arrow" d="m61 61 11-11 11 11"></path>
+              </svg>
+            </span>
+            <span class="mode-title">Send Files</span>
+            <span class="mode-trails" aria-hidden="true"></span>
+            <svg class="mode-chevron" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+          </button>
+
+          <button class="mode-button mode-receive-button" type="button" id="home-receive" data-mode="receive" aria-label="Receive files">
+            <span class="mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 96 96">
+                <path class="file-shape" d="M24 18h31l17 17v43H24Z"></path>
+                <path class="file-fold" d="M55 18v18h17"></path>
+                <path class="pulse-line" d="M31 54h12l5-15 8 29 6-14h7"></path>
+                <path class="mode-arrow" d="M72 49v27"></path>
+                <path class="mode-arrow" d="m61 65 11 11 11-11"></path>
+              </svg>
+            </span>
+            <span class="mode-title">Receive Files</span>
+            <span class="mode-trails" aria-hidden="true"></span>
+            <svg class="mode-chevron" aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="workflow-screen" id="workflow-screen" hidden>
+        <header class="topbar">
+          <button class="back-button" type="button" id="back-home" title="Back" aria-label="Back">
+            <svg class="icon"><use href="#icon-arrow-left"></use></svg>
+          </button>
+          <div class="workflow-title-block">
+            <p class="eyebrow" id="workflow-kicker">Transfer</p>
+            <h1 id="workflow-title">PulseDrop</h1>
+          </div>
+          <div class="device-strip" aria-live="polite">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="device-name">Starting...</span>
+            <span class="muted" id="device-platform"></span>
+          </div>
+        </header>
+
+        <section class="hero-band">
+          <div>
+            <p class="metric-label">This device</p>
+            <strong id="local-ip">Checking network</strong>
+          </div>
+          <div>
+            <p class="metric-label">Receiver</p>
+            <strong id="receiver-state">Offline</strong>
+          </div>
+          <div>
+            <p class="metric-label">Inbox</p>
+            <strong id="inbox-count">0 files</strong>
+          </div>
+        </section>
+
+        <section class="workspace">
+          <article class="tool-panel send-panel" id="send-panel" data-panel="send">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Send</p>
+                <h2>Files</h2>
+              </div>
+              <button class="icon-button" type="button" id="clear-files" title="Clear files" aria-label="Clear files">
+                <svg class="icon"><use href="#icon-trash"></use></svg>
+              </button>
+            </div>
+
+            <div class="peer-grid">
+              <label>
+                <span>Peer IP</span>
+                <input id="peer-ip" inputmode="decimal" autocomplete="off" placeholder="192.168.1.42" />
+              </label>
+              <label>
+                <span>Port</span>
+                <input id="peer-port" inputmode="numeric" autocomplete="off" placeholder="53612" />
+              </label>
+              <label>
+                <span>Code</span>
+                <input id="peer-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="000000" />
+              </label>
+            </div>
+
+            <label class="drop-zone" id="drop-zone">
+              <input id="file-input" type="file" multiple />
+              <span class="drop-icon">
+                <svg class="icon"><use href="#icon-plus"></use></svg>
+              </span>
+              <strong>Select files</strong>
+              <span class="muted">Drop files here or tap to browse</span>
+            </label>
+
+            <div class="list-block">
+              <div class="list-title">
+                <span>Queue</span>
+                <span id="queue-total">0 B</span>
+              </div>
+              <ul class="file-list" id="file-list"></ul>
+            </div>
+
+            <section class="transfer-monitor" id="transfer-monitor" hidden aria-live="polite">
+              <div class="transfer-monitor-top">
+                <div>
+                  <span class="transfer-label">Transfer</span>
+                  <strong id="transfer-name">Ready</strong>
+                </div>
+                <span class="transfer-percent" id="transfer-percent">0%</span>
+              </div>
+              <div class="transfer-track" aria-hidden="true">
+                <div class="transfer-fill" id="transfer-fill"></div>
+              </div>
+              <div class="transfer-stats">
+                <span id="transfer-bytes">0 B of 0 B</span>
+                <span id="transfer-speed">0 B/s</span>
+              </div>
+            </section>
+
+            <button class="primary-action" type="button" id="send-files">
+              <svg class="icon"><use href="#icon-send"></use></svg>
+              <span>Send files</span>
+            </button>
+          </article>
+
+          <article class="tool-panel receive-panel" id="receive-panel" data-panel="receive">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Receive</p>
+                <h2>Session</h2>
+              </div>
+              <button class="icon-button" type="button" id="toggle-receiver" title="Start receiver" aria-label="Start receiver">
+                <svg class="icon"><use href="#icon-play"></use></svg>
+              </button>
+            </div>
+
+            <div class="endpoint-grid">
+              <div class="endpoint-cell">
+                <span>IP</span>
+                <button class="copy-value" type="button" id="copy-ip" title="Copy IP">
+                  <strong id="session-ip">--</strong>
+                  <svg class="icon"><use href="#icon-copy"></use></svg>
+                </button>
+              </div>
+              <div class="endpoint-cell">
+                <span>Port</span>
+                <button class="copy-value" type="button" id="copy-port" title="Copy port">
+                  <strong id="session-port">--</strong>
+                  <svg class="icon"><use href="#icon-copy"></use></svg>
+                </button>
+              </div>
+              <div class="endpoint-cell">
+                <span>Code</span>
+                <button class="copy-value" type="button" id="copy-code" title="Copy code">
+                  <strong id="session-code">--</strong>
+                  <svg class="icon"><use href="#icon-copy"></use></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="network-row" id="network-row" hidden>
+              <span>Local addresses</span>
+              <div class="network-chips" id="network-chips"></div>
+            </div>
+
+            <div class="inbox-row">
+              <div>
+                <span>Inbox</span>
+                <strong id="inbox-path">Not started</strong>
+              </div>
+              <button class="secondary-action" type="button" id="open-inbox">
+                <svg class="icon"><use href="#icon-folder"></use></svg>
+                <span>Open</span>
+              </button>
+            </div>
+
+            <div class="activity-block">
+              <div class="list-title">
+                <span>Activity</span>
+                <span id="activity-total">Idle</span>
+              </div>
+              <ul class="activity-list" id="activity-list"></ul>
+            </div>
+          </article>
+          <article class="tool-panel settings-panel" id="settings-panel" data-panel="settings" hidden>
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Settings</p>
+                <h2>Connection Health</h2>
+              </div>
+              <button class="icon-button" type="button" id="settings-refresh" title="Refresh checks" aria-label="Refresh checks">
+                <svg class="icon"><use href="#icon-refresh"></use></svg>
+              </button>
+            </div>
+
+            <div class="settings-summary">
+              <span>Installed app</span>
+              <strong id="settings-app-path">Checking...</strong>
+            </div>
+
+            <div class="diagnostic-list">
+              <section class="diagnostic-card" id="network-card" data-status="unknown">
+                <div class="diagnostic-icon" aria-hidden="true">
+                  <svg class="icon"><use href="#icon-wifi"></use></svg>
+                </div>
+                <div class="diagnostic-copy">
+                  <div class="diagnostic-title-row">
+                    <h3>Network Profile</h3>
+                    <span class="diagnostic-status" id="network-status">Checking</span>
+                  </div>
+                  <p id="network-message">Checking Windows network mode...</p>
+                  <small id="network-detail">Waiting for diagnostics</small>
+                </div>
+                <button class="fix-action" type="button" id="fix-network" disabled>Fix</button>
+              </section>
+
+              <section class="diagnostic-card" id="firewall-card" data-status="unknown">
+                <div class="diagnostic-icon" aria-hidden="true">
+                  <svg class="icon"><use href="#icon-shield"></use></svg>
+                </div>
+                <div class="diagnostic-copy">
+                  <div class="diagnostic-title-row">
+                    <h3>Windows Firewall</h3>
+                    <span class="diagnostic-status" id="firewall-status">Checking</span>
+                  </div>
+                  <p id="firewall-message">Checking inbound access for PulseDrop...</p>
+                  <small id="firewall-detail">Waiting for diagnostics</small>
+                </div>
+                <button class="fix-action" type="button" id="fix-firewall" disabled>Fix</button>
+              </section>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+
+    <script src="./main.js" type="module"></script>
+  </body>
+</html>
+
+
+
