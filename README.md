@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/pulsedrop-github-logo.svg" alt="PulseDrop logo" width="820" />
+</p>
+
 # PulseDrop
 
 PulseDrop is a Windows and Android-first local network file transfer app built with Tauri 2. It lets devices on the same Wi-Fi/LAN send files directly to each other without cloud storage, accounts, or an external server.
