@@ -257,4 +257,4 @@ PulseDrop tries to prefer Wi-Fi/Ethernet over VPN interfaces. If a VPN address s
 
 ## License
 
-Add a license before publishing publicly. MIT is a common choice for small open-source utilities, but choose the license that fits your plans.
+MIT license
