@@ -162,12 +162,22 @@ fn stop_receiver(state: State<'_, ReceiverState>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn open_inbox(app: AppHandle) -> Result<(), String> {
     let path = inbox_dir(&app)?;
     fs::create_dir_all(&path).map_err(|error| format!("Could not create inbox: {error}"))?;
     tauri_plugin_opener::open_path(path.to_string_lossy().to_string(), None::<&str>)
         .map_err(|error| format!("Could not open inbox: {error}"))
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn open_inbox(_app: AppHandle) -> Result<(), String> {
+    let inbox = public_android_inbox_dir();
+    tauri_plugin_opener::open_path(inbox.to_string_lossy().to_string(), None::<&str>)
+        .or_else(|_| tauri_plugin_opener::open_path("/storage/emulated/0/Download", None::<&str>))
+        .map_err(|error| format!("Could not open Android Downloads: {error}"))
 }
 
 #[tauri::command]
@@ -803,8 +813,25 @@ fn session_from_runtime(runtime: &ReceiverRuntime) -> ReceiveSession {
         ip_addresses,
         port: runtime.port,
         code: runtime.code.clone(),
-        inbox_dir: runtime.inbox_dir.to_string_lossy().to_string(),
+        inbox_dir: display_inbox_dir(&runtime.inbox_dir)
+            .to_string_lossy()
+            .to_string(),
     }
+}
+
+#[cfg(target_os = "android")]
+fn display_inbox_dir(_actual_dir: &Path) -> PathBuf {
+    public_android_inbox_dir()
+}
+
+#[cfg(not(target_os = "android"))]
+fn display_inbox_dir(actual_dir: &Path) -> PathBuf {
+    actual_dir.to_path_buf()
+}
+
+#[cfg(target_os = "android")]
+fn public_android_inbox_dir() -> PathBuf {
+    PathBuf::from("/storage/emulated/0/Download/PulseDrop/Inbox")
 }
 
 fn inbox_dir(app: &AppHandle) -> Result<PathBuf, String> {

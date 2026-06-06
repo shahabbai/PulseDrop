@@ -455,7 +455,21 @@ async function openInbox() {
     return;
   }
 
+  const androidBridge = window.PulseDropAndroid;
+  const looksLikeAndroidPath = String(state.receiver.inbox_dir || "").startsWith("/storage/emulated/");
+
   try {
+    if (androidBridge && typeof androidBridge.openInbox === "function") {
+      androidBridge.openInbox();
+      showToast("Opening Android Downloads");
+      return;
+    }
+
+    if (isAndroidRuntime || looksLikeAndroidPath) {
+      showToast("Open Downloads, then PulseDrop/Inbox");
+      return;
+    }
+
     if (invoke) {
       await invoke("open_inbox");
     } else if (opener && opener.openPath) {
