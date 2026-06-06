@@ -1,0 +1,92 @@
+<svg width="1200" height="360" viewBox="0 0 1200 360" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">PulseDrop logo</title>
+  <desc id="desc">A neon file transfer logo with a pulse document mark, the PulseDrop wordmark, and local network transfer trails.</desc>
+  <defs>
+    <linearGradient id="bg" x1="30" y1="24" x2="1165" y2="338" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#04162D"/>
+      <stop offset="0.56" stop-color="#061D3E"/>
+      <stop offset="1" stop-color="#0A0820"/>
+    </linearGradient>
+    <linearGradient id="border" x1="36" y1="42" x2="1164" y2="326" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27F5FF"/>
+      <stop offset="0.52" stop-color="#3384FF"/>
+      <stop offset="1" stop-color="#8A6CFF"/>
+    </linearGradient>
+    <linearGradient id="markFill" x1="92" y1="78" x2="286" y2="274" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#103B61"/>
+      <stop offset="0.5" stop-color="#071D3B"/>
+      <stop offset="1" stop-color="#081224"/>
+    </linearGradient>
+    <linearGradient id="cyanBlue" x1="112" y1="94" x2="302" y2="262" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#32F6FF"/>
+      <stop offset="0.5" stop-color="#3AB7FF"/>
+      <stop offset="1" stop-color="#2D6BFF"/>
+    </linearGradient>
+    <linearGradient id="word" x1="360" y1="120" x2="808" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#EAF7FF"/>
+      <stop offset="1" stop-color="#82F7FF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="360" y1="258" x2="680" y2="258" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27F5FF"/>
+      <stop offset="0.55" stop-color="#3384FF"/>
+      <stop offset="1" stop-color="#FF6F8F"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.12 0 0 0 0 0.83 0 0 0 0 1 0 0 0 0.8 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="textGlow" x="-10%" y="-30%" width="120%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#27F5FF" flood-opacity="0.22"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <pattern id="grid" width="46" height="46" patternUnits="userSpaceOnUse">
+      <path d="M46 0H0V46" stroke="#7CCFFF" stroke-opacity="0.08"/>
+    </pattern>
+  </defs>
+
+  <rect x="18" y="18" width="1164" height="324" rx="42" fill="url(#bg)"/>
+  <rect x="18" y="18" width="1164" height="324" rx="42" fill="url(#grid)" opacity="0.55"/>
+  <rect x="20.5" y="20.5" width="1159" height="319" rx="39.5" stroke="url(#border)" stroke-width="5"/>
+  <path d="M30 292C180 332 340 330 510 302C722 268 864 244 1170 276" stroke="#27F5FF" stroke-opacity="0.12" stroke-width="2"/>
+  <path d="M950 92C1016 90 1082 111 1136 158" stroke="#3384FF" stroke-opacity="0.24" stroke-width="2"/>
+  <path d="M928 126C1004 126 1072 148 1131 193" stroke="#27F5FF" stroke-opacity="0.18" stroke-width="2"/>
+  <path d="M920 164C1000 171 1062 196 1116 235" stroke="#8A6CFF" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="1016" cy="91" r="3" fill="#3384FF" opacity="0.8"/>
+  <circle cx="1066" cy="139" r="4" fill="#27F5FF" opacity="0.75"/>
+  <circle cx="1004" cy="176" r="3" fill="#8A6CFF" opacity="0.8"/>
+  <circle cx="1117" cy="221" r="3" fill="#27F5FF" opacity="0.72"/>
+
+  <g filter="url(#softGlow)">
+    <rect x="80" y="70" width="214" height="214" rx="42" fill="url(#markFill)" stroke="#1F8ED0" stroke-opacity="0.55" stroke-width="3"/>
+    <rect x="105" y="95" width="164" height="164" rx="31" stroke="#27F5FF" stroke-opacity="0.18" stroke-width="2"/>
+    <path d="M142 111H196L232 147V242H142V111Z" stroke="url(#cyanBlue)" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M196 111V149H232" stroke="url(#cyanBlue)" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M154 190H178L188 160L204 224L217 190H234" stroke="#27F5FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M238 236V177" stroke="#27F5FF" stroke-width="9" stroke-linecap="round"/>
+    <path d="M216 199L238 177L260 199" stroke="#27F5FF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#textGlow)">
+    <text x="352" y="170" fill="url(#word)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="82" font-weight="800" letter-spacing="0">PulseDrop</text>
+    <text x="356" y="218" fill="#9EB7D2" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="0">Fast local file transfer for PC and Android</text>
+  </g>
+
+  <g>
+    <rect x="358" y="248" width="316" height="12" rx="6" fill="#061327" stroke="#7CCFFF" stroke-opacity="0.18"/>
+    <rect x="358" y="248" width="238" height="12" rx="6" fill="url(#accent)"/>
+    <circle cx="604" cy="254" r="5" fill="#EAF7FF" opacity="0.9"/>
+    <g fill="#C9F8FF" fill-opacity="0.92" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">
+      <rect x="704" y="236" width="96" height="36" rx="18" fill="#071B37" stroke="#27F5FF" stroke-opacity="0.28"/>
+      <text x="724" y="259">No cloud</text>
+      <rect x="816" y="236" width="126" height="36" rx="18" fill="#071B37" stroke="#3384FF" stroke-opacity="0.32"/>
+      <text x="836" y="259">Same Wi-Fi</text>
+      <rect x="958" y="236" width="118" height="36" rx="18" fill="#071B37" stroke="#FF6F8F" stroke-opacity="0.32"/>
+      <text x="978" y="259">Pair code</text>
+    </g>
+  </g>
+</svg>
