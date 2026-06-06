@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/pulsedrop-github-logo.svg" alt="PulseDrop logo" width="820" />
+  <img src="assets/brand/pulsedrop-github-logo.png" alt="PulseDrop logo" width="820" />
 </p>
 
 # PulseDrop
