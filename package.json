@@ -14,7 +14,7 @@
     "android:sign:apk": "node scripts/sign-android-apk.mjs",
     "android:release:apk": "npm run android:build:apk && npm run android:sign:apk",
     "frontend:dev": "vite",
-    "frontend:build": "node scripts/build-frontend.mjs",
+    "frontend:build": "vite build",
     "android:hot": "tauri android dev",
     "android:build:debug": "tauri android build --debug --apk --target aarch64",
     "android:install:debug": "node scripts/android-install-debug.mjs",
@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
-    "vite": "^5.4.8"
+    "vite": "^6.4.3"
   },
   "engines": {
     "node": ">=18.0.0"
