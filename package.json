@@ -14,7 +14,7 @@
     "android:sign:apk": "node scripts/sign-android-apk.mjs",
     "android:release:apk": "npm run android:build:apk && npm run android:sign:apk",
     "frontend:dev": "vite",
-    "frontend:build": "vite build",
+    "frontend:build": "node scripts/build-frontend.mjs",
     "android:hot": "tauri android dev",
     "android:build:debug": "tauri android build --debug --apk --target aarch64",
     "android:install:debug": "node scripts/android-install-debug.mjs",
