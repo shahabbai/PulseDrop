@@ -5,3 +5,13 @@ src-tauri/gen/android/.gradle
 src-tauri/gen/android/app/build
 src-tauri/gen/apple/build
 *.log
+.build-tools/
+artifacts/
+*.apk
+*.apk.idsig
+*.jks
+*.keystore
+*.jks.base64
+*.keystore.base64
+src-tauri/gen/android/app/src/main/assets/
+src-tauri/gen/android/**/.kotlin/

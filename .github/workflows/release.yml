@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: '2'
+
+jobs:
+  checks:
+    name: Validate release version and frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Check tag against every manifest
+        id: version
+        run: npm run version:check -- "$GITHUB_REF_NAME"
+      - run: npm test
+      - run: npm run frontend:build
+
+  desktop:
+    name: ${{ matrix.name }}
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux DEB
+            os: ubuntu-24.04
+            bundle: deb
+            artifact: linux-deb
+            path: src-tauri/target/release/bundle/deb/*.deb
+          - name: Windows EXE
+            os: windows-2022
+            bundle: nsis
+            artifact: windows-exe
+            path: src-tauri/target/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+      - name: Rust tests
+        shell: bash
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Build installer
+        shell: bash
+        env:
+          BUNDLE: ${{ matrix.bundle }}
+        run: |
+          rm -rf src-tauri/target/release/bundle
+          npm run tauri -- build --bundles "$BUNDLE" --ci -- --locked
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Signed Android release APK
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Require Android signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import os
+          names = ['ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD']
+          missing = [name for name in names if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('Configure GitHub repository secrets: ' + ', '.join(missing))
+          PY
+      - uses: ./.github/actions/setup-build
+        with:
+          android: 'true'
+      - name: Build unsigned release APK
+        run: npm run android:build:apk -- --ci
+      - name: Restore signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          key = Path(os.environ['RUNNER_TEMP']) / 'pulsedrop-release.jks'
+          key.write_bytes(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'].strip(), validate=True))
+          key.chmod(0o600)
+          PY
+      - name: Align, sign, and verify APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_VERSION: ${{ needs.checks.outputs.version }}
+        run: |
+          npm run android:sign:apk -- \
+            --ks "$RUNNER_TEMP/pulsedrop-release.jks" \
+            --alias "$ANDROID_KEY_ALIAS" \
+            --build-tools "$ANDROID_HOME/build-tools/36.0.0" \
+            --out "artifacts/PulseDrop_${RELEASE_VERSION}_android_arm64.apk"
+      - name: Remove signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/pulsedrop-release.jks"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-android-apk
+          path: artifacts/*_android_arm64.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish all installers
+    needs: [checks, desktop, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify all platforms and generate checksums
+        working-directory: release-assets
+        env:
+          RELEASE_VERSION: ${{ needs.checks.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          for extension in ['deb', 'apk', 'exe']:
+              files = list(Path('.').glob('*.' + extension))
+              if len(files) != 1:
+                  raise SystemExit('Expected exactly one ' + extension + ' installer, found ' + str(len(files)))
+              if '_' + os.environ['RELEASE_VERSION'] + '_' not in files[0].name:
+                  raise SystemExit('Installer version does not match the release: ' + files[0].name)
+          PY
+          sha256sum ./*.deb ./*.apk ./*.exe > SHA256SUMS
+      - name: Upload assets and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          state=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          if [[ "$state" == "false" ]]; then
+            echo "This version is already published. Create a new version tag."
+            exit 1
+          fi
+          if [[ "$state" != "true" ]]; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "PulseDrop $GITHUB_REF_NAME" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

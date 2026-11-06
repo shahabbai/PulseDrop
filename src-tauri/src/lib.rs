@@ -17,6 +17,42 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod discovery;
+mod network;
+use network::*;
+
+struct DiscoveryState {
+    id: String,
+    scan: Mutex<()>,
+}
+
+impl Default for DiscoveryState {
+    fn default() -> Self {
+        Self {
+            id: discovery::instance_id(),
+            scan: Mutex::new(()),
+        }
+    }
+}
+
+#[tauri::command]
+async fn discover_receivers(
+    state: State<'_, DiscoveryState>,
+    app: AppHandle,
+) -> Result<Vec<discovery::DiscoveredReceiver>, String> {
+    let id = state.id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DiscoveryState>();
+        let _scan = state
+            .scan
+            .try_lock()
+            .map_err(|_| "A LAN scan is already running".to_string())?;
+        discovery::discover(&id)
+    })
+    .await
+    .map_err(|error| format!("LAN discovery failed: {error}"))?
+}
+
 const DEFAULT_PORT: u16 = 53612;
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 
@@ -30,6 +66,8 @@ struct ReceiverRuntime {
     code: String,
     inbox_dir: PathBuf,
     stop: std::sync::Arc<AtomicBool>,
+    _discovery: Option<discovery::Responder>,
+    discovery_error: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -57,6 +95,7 @@ struct ReceiveSession {
     port: u16,
     code: String,
     inbox_dir: String,
+    discovery_error: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -103,6 +142,8 @@ fn device_profile() -> DeviceProfile {
 fn start_receiver(
     app: AppHandle,
     state: State<'_, ReceiverState>,
+    discovery_state: State<'_, DiscoveryState>,
+    receiver_name: Option<String>,
 ) -> Result<ReceiveSession, String> {
     let mut runtime = state
         .runtime
@@ -132,6 +173,26 @@ fn start_receiver(
     let thread_inbox = inbox_dir.clone();
     let thread_app = app.clone();
 
+    let name: String = receiver_name
+        .unwrap_or_else(device_name)
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(32)
+        .collect();
+    let (discovery, discovery_error) = match discovery::Responder::start(discovery::Advertisement {
+        id: discovery_state.id.clone(),
+        name: if name.trim().is_empty() {
+            "PulseDrop device".into()
+        } else {
+            name
+        },
+        platform: std::env::consts::OS.to_string(),
+        port,
+    }) {
+        Ok(responder) => (Some(responder), None),
+        Err(error) => (None, Some(error)),
+    };
+
     thread::spawn(move || {
         receiver_loop(listener, thread_app, thread_inbox, thread_code, thread_stop);
     });
@@ -141,6 +202,8 @@ fn start_receiver(
         code,
         inbox_dir,
         stop,
+        _discovery: discovery,
+        discovery_error,
     };
     let session = session_from_runtime(&active);
     *runtime = Some(active);
@@ -289,6 +352,9 @@ $program = {quoted_path}
 $ruleName = "PulseDrop Receiver"
 Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Program $program -Action Allow -Profile Private -Protocol TCP -Enabled True | Out-Null
+$discoveryRule = "PulseDrop LAN Discovery"
+Remove-NetFirewallRule -DisplayName $discoveryRule -ErrorAction SilentlyContinue
+New-NetFirewallRule -DisplayName $discoveryRule -Direction Inbound -Program $program -Action Allow -Profile Private -Protocol UDP -LocalPort 53613 -RemoteAddress LocalSubnet -Enabled True | Out-Null
 "#
     );
 
@@ -369,10 +435,13 @@ fn check_windows_firewall(app_path: &str) -> DiagnosticItem {
         r#"
 $program = {quoted_path}
 $rules = @(Get-NetFirewallApplicationFilter -Program $program -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object {{ $_.Enabled -eq "True" -and $_.Direction -eq "Inbound" -and $_.Action -eq "Allow" }})
-if ($rules.Count -gt 0) {{
+$ports = @($rules | Get-NetFirewallPortFilter)
+$tcp = @($ports | Where-Object {{ $_.Protocol -eq "TCP" -or $_.Protocol -eq "6" -or $_.Protocol -eq "Any" }})
+$udp = @($ports | Where-Object {{ ($_.Protocol -eq "UDP" -or $_.Protocol -eq "17" -or $_.Protocol -eq "Any") -and ($_.LocalPort -contains "53613" -or $_.LocalPort -contains "Any") }})
+if ($tcp.Count -gt 0 -and $udp.Count -gt 0) {{
   "OK|" + (($rules | Select-Object -ExpandProperty DisplayName) -join ", ")
 }} else {{
-  "WARN|No enabled inbound allow rule was found for " + $program
+  "WARN|TCP receiving and UDP 53613 LAN discovery need inbound allow rules for " + $program
 }}
 "#
     );
@@ -393,7 +462,7 @@ if ($rules.Count -gt 0) {{
                 "WARN" => diagnostic_item(
                     "warn",
                     "Windows Firewall",
-                    "Windows Firewall does not have an inbound allow rule for this installed app.",
+                    "Windows Firewall needs rules for receiving and LAN discovery.",
                     detail.trim(),
                     true,
                 ),
@@ -816,6 +885,7 @@ fn session_from_runtime(runtime: &ReceiverRuntime) -> ReceiveSession {
         inbox_dir: display_inbox_dir(&runtime.inbox_dir)
             .to_string_lossy()
             .to_string(),
+        discovery_error: runtime.discovery_error.clone(),
     }
 }
 
@@ -944,82 +1014,6 @@ fn network_address_score(address: &NetworkAddress) -> i32 {
     score
 }
 
-fn is_shareable_ipv4(ip: Ipv4Addr) -> bool {
-    !ip.is_loopback() && !ip.is_unspecified() && !is_link_local_ipv4(ip) && !ip.is_broadcast()
-}
-
-fn is_private_lan_ipv4(ip: Ipv4Addr) -> bool {
-    let [a, b, _, _] = ip.octets();
-    a == 10 || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168)
-}
-
-fn is_link_local_ipv4(ip: Ipv4Addr) -> bool {
-    let [a, b, _, _] = ip.octets();
-    a == 169 && b == 254
-}
-
-fn is_cgnat_ipv4(ip: Ipv4Addr) -> bool {
-    let [a, b, _, _] = ip.octets();
-    a == 100 && (64..=127).contains(&b)
-}
-
-fn is_wifi_or_ethernet_interface(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.contains("wi-fi")
-        || name.contains("wifi")
-        || name.contains("wireless")
-        || name.contains("wlan")
-        || name.contains("ethernet")
-        || name.contains("local area connection")
-        || name == "eth0"
-        || name.starts_with("eth")
-        || name.starts_with("en")
-}
-
-fn is_vpn_like_interface(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.contains("vpn")
-        || name.contains("wireguard")
-        || name.starts_with("wg")
-        || name.starts_with("tun")
-        || name.starts_with("tap")
-        || name.starts_with("utun")
-        || name.starts_with("ppp")
-        || name.contains("tailscale")
-        || name.contains("zerotier")
-        || name.contains("nord")
-        || name.contains("proton")
-        || name.contains("openvpn")
-        || name.contains("anyconnect")
-        || name.contains("fortinet")
-        || name.contains("cisco")
-        || name.contains("cloudflare")
-        || name.contains("warp")
-        || name.contains("mullvad")
-        || name.contains("hamachi")
-}
-
-fn is_virtual_like_interface(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.contains("virtual")
-        || name.contains("vethernet")
-        || name.contains("hyper-v")
-        || name.contains("vmware")
-        || name.contains("vbox")
-        || name.contains("docker")
-        || name.contains("bridge")
-        || name.contains("bluetooth")
-        || name.contains("npcap")
-}
-
-fn is_mobile_data_interface(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.contains("rmnet")
-        || name.contains("ccmni")
-        || name.contains("wwan")
-        || name.contains("cellular")
-}
-
 fn default_route_ip_address() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
@@ -1042,8 +1036,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ReceiverState::default())
+        .manage(DiscoveryState::default())
         .invoke_handler(tauri::generate_handler![
             device_profile,
+            discover_receivers,
             start_receiver,
             stop_receiver,
             open_inbox,

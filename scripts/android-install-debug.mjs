@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const packageName = "com.pulsedrop.transfer";
 const activityName = "com.pulsedrop.transfer/.MainActivity";
 const apkRoot = resolve("src-tauri", "gen", "android", "app", "build", "outputs", "apk");
 
@@ -26,7 +25,7 @@ function findApks(dir) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...findApks(path));
-    } else if (entry.isFile() && entry.name.endsWith(".apk")) {
+    } else if (entry.isFile() && entry.name.endsWith(".apk") && /(?:^|[\\/])debug(?:[\\/])/.test(path)) {
       files.push(path);
     }
   }
@@ -36,7 +35,7 @@ function findApks(dir) {
 function newestApk() {
   const apks = findApks(apkRoot);
   if (apks.length === 0) {
-    console.error(`No APK files found under ${apkRoot}`);
+    console.error(`No debug APK found under ${apkRoot}. Run npm run android:build:debug first.`);
     process.exit(1);
   }
 
@@ -44,7 +43,9 @@ function newestApk() {
 }
 
 const adb = process.env.ADB || (
-  process.env.LOCALAPPDATA
+  process.env.ANDROID_HOME
+    ? join(process.env.ANDROID_HOME, "platform-tools", process.platform === "win32" ? "adb.exe" : "adb")
+    : process.env.LOCALAPPDATA
     ? join(process.env.LOCALAPPDATA, "Android", "Sdk", "platform-tools", "adb.exe")
     : "adb"
 );
@@ -52,10 +53,5 @@ const adb = process.env.ADB || (
 const apk = newestApk();
 console.log(`Installing ${apk}`);
 
-spawnSync(adb, ["uninstall", packageName], {
-  stdio: "inherit",
-  shell: process.platform === "win32"
-});
-
-run(adb, ["install", "-r", "-d", apk]);
+run(adb, ["install", "-r", apk]);
 run(adb, ["shell", "am", "start", "-n", activityName]);

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -99,7 +99,7 @@ const defaultAlignedApk = outputApk.toLowerCase().endsWith("_signed.apk")
   ? outputApk.slice(0, -"_signed.apk".length) + "_aligned.apk"
   : outputApk.replace(/\.apk$/i, "_aligned.apk");
 const alignedApk = path.resolve(root, readArg("aligned", defaultAlignedApk));
-const buildToolsDir = path.resolve(readArg("build-tools", findBuildToolsDir()));
+const buildToolsDir = path.resolve(readArg("build-tools") || findBuildToolsDir());
 const zipalign = path.join(buildToolsDir, isWindows ? "zipalign.exe" : "zipalign");
 const apksigner = path.join(buildToolsDir, isWindows ? "apksigner.bat" : "apksigner");
 
@@ -107,6 +107,11 @@ if (!existsSync(unsignedApk)) fail("Unsigned APK was not found: " + unsignedApk 
 if (!existsSync(keystore)) fail("Keystore was not found: " + keystore);
 if (!existsSync(zipalign)) fail("zipalign was not found: " + zipalign);
 if (!existsSync(apksigner)) fail("apksigner was not found: " + apksigner);
+if (unsignedApk === outputApk || unsignedApk === alignedApk || outputApk === alignedApk) {
+  fail("Unsigned, aligned, and signed APK paths must be different.");
+}
+mkdirSync(path.dirname(outputApk), { recursive: true });
+mkdirSync(path.dirname(alignedApk), { recursive: true });
 
 console.log("Signing Android APK");
 console.log("Unsigned APK: " + unsignedApk);
@@ -115,8 +120,12 @@ console.log("Alias:        " + alias);
 console.log("Build Tools:  " + buildToolsDir);
 console.log("Signed APK:   " + outputApk);
 
-run(zipalign, ["-p", "-f", "4", unsignedApk, alignedApk]);
-run(apksigner, ["sign", "--ks", keystore, "--ks-key-alias", alias, "--out", outputApk, alignedApk]);
+run(zipalign, ["-P", "16", "-f", "4", unsignedApk, alignedApk]);
+const signingArgs = ["sign", "--ks", keystore, "--ks-key-alias", alias];
+if (process.env.ANDROID_KEYSTORE_PASSWORD) signingArgs.push("--ks-pass", "env:ANDROID_KEYSTORE_PASSWORD");
+if (process.env.ANDROID_KEY_PASSWORD) signingArgs.push("--key-pass", "env:ANDROID_KEY_PASSWORD");
+run(apksigner, [...signingArgs, "--out", outputApk, alignedApk]);
 run(apksigner, ["verify", "--verbose", outputApk]);
+run(zipalign, ["-c", "-P", "16", "4", outputApk]);
 
 console.log("\nSigned APK ready:\n" + outputApk);

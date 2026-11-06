@@ -176,6 +176,18 @@
               </button>
             </div>
 
+            <section class="discovery-panel" aria-labelledby="discovery-heading">
+              <div class="discovery-heading">
+                <h3 id="discovery-heading">Nearby receivers</h3>
+                <button class="icon-button" type="button" id="refresh-receivers" title="Refresh receivers" aria-label="Refresh receivers">
+                  <svg class="icon"><use href="#icon-refresh"></use></svg>
+                </button>
+              </div>
+              <p class="discovery-status" id="discovery-status" role="status" aria-live="polite">Searching on your LAN…</p>
+              <ul class="receiver-list" id="receiver-list" aria-label="Nearby receivers"></ul>
+              <p class="discovery-hint">Start Receive on the other device, select it here, then enter its code. You can also enter an address below.</p>
+            </section>
+
             <div class="peer-grid">
               <label>
                 <span>Peer IP</span>
@@ -265,6 +277,8 @@
                 </button>
               </div>
             </div>
+
+            <p class="receiver-discovery-status" id="receiver-discovery-status" role="status" aria-live="polite" hidden></p>
 
             <div class="network-row" id="network-row" hidden>
               <span>Local addresses</span>

@@ -1,4 +1,6 @@
-﻿const tauri = window.__TAURI__;
+﻿import { createReceiverDiscovery } from "./discovery.js";
+
+const tauri = window.__TAURI__;
 const invoke = tauri && tauri.core && tauri.core.invoke;
 const listen = tauri && tauri.event && tauri.event.listen;
 const opener = tauri && tauri.opener;
@@ -22,6 +24,9 @@ const state = {
   inboxCount: 0,
   activities: []
 };
+
+state.discoveredReceivers = [];
+state.selectedReceiver = null;
 
 function createId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -52,6 +57,10 @@ const els = {
   peerIp: document.querySelector("#peer-ip"),
   peerPort: document.querySelector("#peer-port"),
   peerCode: document.querySelector("#peer-code"),
+  receiverList: document.querySelector("#receiver-list"),
+  discoveryStatus: document.querySelector("#discovery-status"),
+  refreshReceivers: document.querySelector("#refresh-receivers"),
+  receiverDiscoveryStatus: document.querySelector("#receiver-discovery-status"),
   fileInput: document.querySelector("#file-input"),
   dropZone: document.querySelector("#drop-zone"),
   fileList: document.querySelector("#file-list"),
@@ -91,6 +100,78 @@ const els = {
   copyCode: document.querySelector("#copy-code"),
   toast: document.querySelector("#toast")
 };
+
+const receiverDiscovery = createReceiverDiscovery({
+  scan: () => invoke("discover_receivers"),
+  onChange({ receivers, scanning, error }) {
+    state.discoveredReceivers = receivers;
+    els.refreshReceivers.disabled = scanning;
+    els.receiverList.setAttribute("aria-busy", String(scanning));
+    if (error) {
+      els.discoveryStatus.textContent = `${error} You can enter the receiver address below.`;
+    } else if (scanning) {
+      els.discoveryStatus.textContent = "Searching on your LAN…";
+    } else if (state.selectedReceiver && !receivers.some((peer) => peer.id === state.selectedReceiver.id)) {
+      els.discoveryStatus.textContent = "The selected receiver is no longer visible. Check that it is still receiving, or enter its address below.";
+    } else {
+      els.discoveryStatus.textContent = receivers.length
+        ? `${receivers.length} ${receivers.length === 1 ? "receiver" : "receivers"} found. Select a device to connect.`
+        : "No receivers found. Start Receive on another device on the same Wi-Fi. If discovery is blocked, enter its address below.";
+    }
+    if (!scanning || receivers.length === 0) renderDiscoveredReceivers();
+  }
+});
+
+function renderDiscoveredReceivers() {
+  els.receiverList.replaceChildren();
+  for (const peer of state.discoveredReceivers) {
+    const row = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "receiver-choice";
+    const selected = state.selectedReceiver && state.selectedReceiver.id === peer.id
+      && els.peerIp.value.trim() === peer.ip && Number(els.peerPort.value) === peer.port;
+    button.setAttribute("aria-pressed", String(Boolean(selected)));
+    const info = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = peer.name;
+    const address = document.createElement("small");
+    address.textContent = `${peer.platform} · ${peer.ip}:${peer.port}`;
+    info.append(name, address);
+    const action = document.createElement("span");
+    action.textContent = selected ? "Selected" : "Select";
+    button.append(info, action);
+    button.addEventListener("click", () => {
+      if (!selected) els.peerCode.value = "";
+      state.selectedReceiver = peer;
+      els.peerIp.value = peer.ip;
+      els.peerPort.value = String(peer.port);
+      renderDiscoveredReceivers();
+      els.peerCode.focus();
+      showToast("Enter the code shown on the receiving device");
+    });
+    row.append(button);
+    els.receiverList.append(row);
+  }
+}
+
+function updateDiscoveryActivity() {
+  const browsing = state.activeView === "send" && !document.hidden && Boolean(invoke);
+  if (browsing) receiverDiscovery.start();
+  else receiverDiscovery.stop();
+  if (!invoke) {
+    els.discoveryStatus.textContent = "Run inside PulseDrop to discover receivers on your LAN.";
+    els.refreshReceivers.disabled = true;
+  }
+  const bridge = window.PulseDropAndroid;
+  if (bridge && typeof bridge.setDiscoveryActive === "function") {
+    try {
+      bridge.setDiscoveryActive(!document.hidden && (browsing || Boolean(state.receiver)));
+    } catch (error) {
+      console.warn("Could not enable Android LAN discovery", error);
+    }
+  }
+}
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -180,6 +261,7 @@ function setView(mode, options = {}) {
   const nextView = normalizeView(mode);
   const isHome = nextView === "home";
   state.activeView = nextView;
+  updateDiscoveryActivity();
 
   els.appShell.dataset.view = nextView;
   els.homeScreen.hidden = !isHome;
@@ -312,6 +394,13 @@ function renderReceiver() {
   els.toggleReceiver.innerHTML = active
     ? '<svg class="icon"><use href="#icon-stop"></use></svg>'
     : '<svg class="icon"><use href="#icon-play"></use></svg>';
+  els.receiverDiscoveryStatus.hidden = !active;
+  els.receiverDiscoveryStatus.textContent = active
+    ? (state.receiver.discovery_error
+      ? `${state.receiver.discovery_error}. Share the IP, port, and code to connect manually.`
+      : "Visible to other PulseDrop devices on your LAN. Senders still need the code above.")
+    : "";
+  updateDiscoveryActivity();
   renderNetworkChoices();
 }
 
@@ -409,7 +498,9 @@ async function loadDeviceProfile() {
     state.networkIps = Array.isArray(profile.network_ips) ? profile.network_ips : [];
     state.selectedIp = profile.primary_ip || (state.networkIps[0] && state.networkIps[0].ip) || null;
     els.statusDot.classList.add("online");
-    els.deviceName.textContent = profile.name;
+    const bridge = window.PulseDropAndroid;
+    els.deviceName.textContent = bridge && typeof bridge.deviceName === "function"
+      ? bridge.deviceName() : profile.name;
     els.devicePlatform.textContent = `${profile.platform} ${profile.arch}`;
     els.localIp.textContent = state.selectedIp || "No network";
     els.localIp.title = state.networkIps.map((address) => address.label || address.ip).join("\n");
@@ -435,10 +526,10 @@ async function toggleReceiver() {
       showToast("Receiver stopped");
     } else {
       const preferredIp = state.selectedIp;
-      state.receiver = await invoke("start_receiver");
+      const bridge = window.PulseDropAndroid;
+      const receiverName = bridge && typeof bridge.deviceName === "function" ? bridge.deviceName() : null;
+      state.receiver = await invoke("start_receiver", { receiverName });
       state.selectedIp = preferredIp || state.receiver.ip_address || selectedReceiverIp();
-      if (!els.peerIp.value) els.peerIp.value = state.selectedIp || "";
-      if (!els.peerPort.value) els.peerPort.value = state.receiver.port || "";
       showToast("Receiver is online");
     }
     renderReceiver();
@@ -959,6 +1050,16 @@ function bindEvents() {
     resetTransferMonitor();
   });
   els.sendFiles.addEventListener("click", sendSelectedFiles);
+  els.refreshReceivers.addEventListener("click", () => receiverDiscovery.refresh());
+  for (const input of [els.peerIp, els.peerPort]) {
+    input.addEventListener("input", () => {
+      if (state.selectedReceiver) els.peerCode.value = "";
+      state.selectedReceiver = null;
+      renderDiscoveredReceivers();
+    });
+  }
+  document.addEventListener("visibilitychange", updateDiscoveryActivity);
+  window.addEventListener("pagehide", () => receiverDiscovery.stop());
   els.toggleReceiver.addEventListener("click", toggleReceiver);
   els.openInbox.addEventListener("click", openInbox);
   els.copyIp.addEventListener("click", () => copyText(els.sessionIp.textContent, "IP"));

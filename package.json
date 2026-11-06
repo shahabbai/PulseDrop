@@ -1,13 +1,17 @@
 {
   "name": "tauri-file-transfer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Cross-platform local network file transfer app built with Tauri.",
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "version:bump": "node scripts/version.mjs",
+    "version:check": "node scripts/version.mjs --check",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
+    "linux:build": "tauri build --bundles deb",
     "android:init": "tauri android init",
     "android:dev": "npm run android:phone",
     "android:build:apk": "tauri android build --apk --target aarch64",
