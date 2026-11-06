@@ -58,6 +58,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-build
+      - name: Build frontend for Rust tests
+        run: npm run frontend:build
       - name: Rust tests
         shell: bash
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
