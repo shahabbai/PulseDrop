@@ -77,6 +77,44 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  macos:
+    name: macOS universal test DMG
+    needs: checks
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+      - name: Install Apple Silicon and Intel Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build frontend for Rust tests
+        run: npm run frontend:build
+      - name: Rust tests on macOS
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Build ad hoc signed universal DMG
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: |
+          rm -rf src-tauri/target/universal-apple-darwin/release/bundle
+          npm run tauri -- build --target universal-apple-darwin --bundles dmg --ci -- --locked
+      - name: Verify app signature, architectures, and disk image
+        run: |
+          app="src-tauri/target/universal-apple-darwin/release/bundle/macos/PulseDrop.app"
+          plutil -lint "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist"
+          binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/$binary"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          hdiutil verify src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ci-macos-universal-dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
   android:
     name: Android debug APK
     needs: checks

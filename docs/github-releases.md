@@ -10,6 +10,7 @@ flowchart LR
     B --> C[Linux tests and DEB]
     B --> D[Windows tests and EXE]
     B --> E[Android debug APK]
+    B --> M[macOS tests and universal test DMG]
     F[Push v0.2.0 tag] --> G[Validate tag and test]
     G --> H[Build DEB, EXE, release APK]
     H --> I[Sign and verify APK]
@@ -17,9 +18,9 @@ flowchart LR
     J --> K[Upload to draft, then publish release]
 ```
 
-`.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It checks all version files, runs JavaScript and desktop Rust tests, and builds Linux, Windows, and Android debug installers. Its artifacts are available on the workflow run for seven days. CI requires no signing secrets and never publishes a release.
+`.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It checks all version files, runs JavaScript and desktop Rust tests, and builds Linux and Windows installers, an Android debug APK, and a universal macOS test DMG. Its artifacts are available on the workflow run for seven days. CI requires no signing secrets and never publishes a release.
 
-`.github/workflows/release.yml` runs when you push a stable tag such as `v0.2.0`. The tag must match the versions in `package.json`, both lockfiles, `Cargo.toml`, and `tauri.conf.json`. It tests and builds every platform, signs the Android release APK, then creates a GitHub Release only after all builds succeed. Assets are uploaded to a temporary draft, which the workflow publishes automatically after upload completes.
+`.github/workflows/release.yml` runs when you push a stable tag such as `v0.2.0`. The tag must match the versions in `package.json`, both lockfiles, `Cargo.toml`, and `tauri.conf.json`. It tests and builds Linux, Windows, and Android, signs the Android release APK, then creates a GitHub Release only after all release builds succeed. Assets are uploaded to a temporary draft, which the workflow publishes automatically after upload completes. macOS is currently a CI test build only.
 
 | Release asset | Architecture / platform |
 | --- | --- |
@@ -31,6 +32,18 @@ flowchart LR
 The Linux build uses Ubuntu 24.04 as a baseline for compatibility with newer Ubuntu releases, including your Ubuntu 26.04 machine. The Windows job runs natively on `windows-2022`; it produces an `.exe` installer, rather than a standalone executable. The Windows installer is currently unsigned, so Windows may show an unknown-publisher prompt. Windows certificate signing can be added separately.
 
 These are GitHub-hosted builds. The workflow installs its own toolchain and does not use the local `.build-tools/` directory. Android uses Java 21, API 36, and NDK 28.2.13676358, matching the local setup. Action references are pinned to commit hashes; update those pins when upgrading actions.
+
+## Download and test the macOS build
+
+No personal Mac or Apple signing secrets are needed to build the test DMG. The **macOS universal test DMG** job runs on GitHub's `macos-15` runner, builds the frontend before native Rust tests, and compiles both Apple Silicon and Intel targets into one installer. It verifies the app's ad hoc signature, both executable architectures, the local network permission description, and the DMG checksum before uploading the artifact.
+
+After committing/pushing the CI changes, open [Actions → CI](https://github.com/shahabbai/PulseDrop/actions/workflows/ci.yml), select the latest successful run, and download **ci-macos-universal-dmg** from **Artifacts**. You can also use **Run workflow** on a branch containing the changes. Extract the downloaded ZIP and share the `.dmg` with a Mac tester. No new version or release tag is needed for this CI build.
+
+On the Mac, open the DMG, drag **PulseDrop** into **Applications**, and launch it. This test build uses ad hoc signing, not an Apple Developer identity, and is not notarized. Gatekeeper may block the first launch; for a build you trust, use **System Settings → Privacy & Security → Open Anyway**, then follow the confirmation prompts. See [Tauri's ad hoc signing guidance](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing).
+
+Allow PulseDrop's local network permission when prompted and allow incoming connections if the macOS firewall asks. Keep both apps open on the same LAN, then test discovery, manual IP/pairing, transfers in both directions with Ubuntu or Android, and **Open Inbox**. Declining local network access can prevent discovery and outgoing transfers; enable it in **System Settings → Privacy & Security → Local Network** if needed. The app includes `NSLocalNetworkUsageDescription` in its macOS bundle for this permission.
+
+This job compiles both architectures and runs Rust tests on the runner's native architecture. It does not launch or test the graphical app, establish physical LAN connectivity, publish a macOS GitHub Release asset, or build iOS. Apple Developer signing/notarization and physical device validation are separate follow-up work.
 
 ## 1. Create or reuse the Android release signing key
 
@@ -64,6 +77,15 @@ Open [PulseDrop Actions secrets](https://github.com/shahabbai/PulseDrop/settings
 | `ANDROID_KEY_PASSWORD` | Key password; use the same value as the store password if configured that way |
 
 Do not put these values in YAML or commit the keystore. The release workflow restores it in the runner's temporary directory, passes passwords through environment variables to `apksigner`, and removes the temporary keystore after signing. GitHub documents the secret setup [here](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
+
+If **Restore signing keystore** reports `Invalid base64-encoded string`, replace `ANDROID_KEYSTORE_BASE64` with the complete contents of the encoded file. A path, filename, partial selection, or a command is not the encoded keystore. Recreate the encoding from the existing key with:
+
+```bash
+base64 -w 0 .build-tools/signing/pulsedrop-release.jks \
+  > .build-tools/signing/pulsedrop-release.jks.base64
+```
+
+Open that file locally, select/copy all its contents, and update the secret under **Settings → Secrets and variables → Actions**. Do not include quotes or Markdown formatting. Keep using the same keystore and passwords. After saving the corrected secret, open the failed Release run and choose **Re-run failed jobs**; a secret-only correction needs no new version tag or source commit. The updated workflow also validates Base64 before expensive build steps and accepts whitespace/line wrapping while rejecting malformed data. That workflow improvement applies to future tags containing the change; the existing tagged workflow works with the corrected single-line secret.
 
 No personal access token is needed. The final publishing job requests `contents: write` for GitHub's automatically supplied `GITHUB_TOKEN`; other jobs use read access. If repository or organization policy disables Actions or restricts the referenced actions/token permissions, adjust that policy under **Settings → Actions → General**.
 

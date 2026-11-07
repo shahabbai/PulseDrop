@@ -6,7 +6,7 @@
 
 PulseDrop is a Windows and Android-first local network file transfer app built with Tauri 2. It lets devices on the same Wi-Fi/LAN send files directly to each other without cloud storage, accounts, or an external server.
 
-The app supports Windows desktop, Ubuntu 26.04, and Android phones. The codebase is structured so macOS and iOS can be added later with Tauri mobile support.
+The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
 The next release is **0.2.0**. See [automatic GitHub releases](docs/github-releases.md) for the one-time Android signing setup and the tag-based workflow that publishes `.deb`, `.apk`, and Windows `.exe` installers.
 
@@ -290,7 +290,7 @@ PulseDrop tries to prefer Wi-Fi/Ethernet over VPN interfaces. If a VPN address s
 - QR code pairing.
 - Transfer cancellation.
 - Per-file receive progress events.
-- macOS build.
+- Signed and notarized macOS releases.
 - iOS build.
 - Optional installer step for Windows firewall rule with user/admin consent.
 
