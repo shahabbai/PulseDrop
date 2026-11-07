@@ -35,7 +35,7 @@ These are GitHub-hosted builds. The workflow installs its own toolchain and does
 
 ## Download and test the macOS build
 
-No personal Mac or Apple signing secrets are needed to build the test DMG. The **macOS universal test DMG** job runs on GitHub's `macos-15` runner, builds the frontend before native Rust tests, and compiles both Apple Silicon and Intel targets into one installer. It verifies the app's ad hoc signature, both executable architectures, the local network permission description, and the DMG checksum before uploading the artifact.
+No personal Mac or Apple signing secrets are needed to build the test DMG. The **macOS universal test DMG** job runs on GitHub's `macos-15` runner, builds the frontend before native Rust tests, and compiles both Apple Silicon and Intel targets into one installer. It requests `--bundles app,dmg` so Tauri retains the `.app` for verification; a DMG-only build removes that intermediate app after packaging. It verifies the app's ad hoc signature, both executable architectures, the local network permission description, and the DMG checksum before uploading the artifact.
 
 After committing/pushing the CI changes, open [Actions → CI](https://github.com/shahabbai/PulseDrop/actions/workflows/ci.yml), select the latest successful run, and download **ci-macos-universal-dmg** from **Artifacts**. You can also use **Run workflow** on a branch containing the changes. Extract the downloaded ZIP and share the `.dmg` with a Mac tester. No new version or release tag is needed for this CI build.
 
@@ -139,6 +139,7 @@ git push origin v0.2.1
 
 ## If a run fails
 
+- If the macOS build succeeds but verification cannot find `PulseDrop.app/Contents/Info.plist`, ensure its build command uses `--bundles app,dmg`. Tauri removes the intermediate `.app` when only `dmg` is requested. Commit and push the workflow fix to start a new CI run; rerunning the previous run uses the old command.
 - A missing secret fails the Android release job with the secret names to configure. Add them, then use **Re-run failed jobs**.
 - If Rust compilation reports that `frontendDist` (`../dist`) does not exist, build the frontend in that same job before `cargo test`. Desktop jobs do this explicitly because `tauri::generate_context!()` embeds frontend assets at compile time. The frontend built in the separate checks job is not shared with other runners. Commit/push workflow fixes to trigger a new CI run; rerunning an old run uses its original workflow revision.
 - A tag/version mismatch fails before building installers. Fix the source version and publish a new matching tag. Published versions should keep their original tags and assets.

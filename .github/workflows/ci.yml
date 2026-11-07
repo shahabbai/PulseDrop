@@ -98,7 +98,8 @@ jobs:
           APPLE_SIGNING_IDENTITY: '-'
         run: |
           rm -rf src-tauri/target/universal-apple-darwin/release/bundle
-          npm run tauri -- build --target universal-apple-darwin --bundles dmg --ci -- --locked
+          # Keep the .app for verification; a dmg-only build deletes it after packaging.
+          npm run tauri -- build --target universal-apple-darwin --bundles app,dmg --ci -- --locked
       - name: Verify app signature, architectures, and disk image
         run: |
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/PulseDrop.app"
