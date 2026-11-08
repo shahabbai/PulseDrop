@@ -133,6 +133,26 @@
             <article class="tool-panel" id="send-panel" data-panel="send" hidden aria-labelledby="send-title">
               <div class="page-heading"><div><p class="eyebrow">From this device</p><h1 id="send-title" tabindex="-1">Send files</h1><p class="page-description">A few files or a whole folder’s worth. Straight to your other device.</p></div></div>
               <div class="form-message" id="send-error" role="alert" tabindex="-1" hidden></div>
+              <fieldset class="connection-choice" id="send-connection-choice"><legend>Connection</legend><label><input type="radio" name="send-connection" value="lan" checked/><span>Local network<small>Existing Wi-Fi or LAN</small></span></label><label><input type="radio" name="send-connection" value="hotspot"/><span>Hotspot<small>No router needed</small></span></label></fieldset>
+              <section class="panel hotspot-panel" id="hotspot-send" hidden aria-labelledby="hotspot-send-title">
+                <div class="hotspot-heading"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><h2 id="hotspot-send-title">Connect to your receiver</h2><p id="hotspot-send-description">Join your receiver’s Wi-Fi directly. No router or internet needed.</p></div></div>
+                <div id="hotspot-wifi-picker" hidden>
+                  <div class="hotspot-actions qr-connect-actions"><button class="secondary-action" id="hotspot-scan-qr" type="button">Scan QR</button><button class="text-button" id="hotspot-choose-qr" type="button">Choose QR image</button><input id="hotspot-qr-image" type="file" accept="image/*" hidden/><button class="text-button" id="hotspot-scan-networks" type="button">Refresh Wi-Fi</button></div>
+                  <p id="hotspot-scan-help" class="hotspot-status">Choose the Wi-Fi name shown on the other device, or scan its QR to fill the password.</p>
+                  <div class="hotspot-camera" id="hotspot-camera" hidden><video id="hotspot-camera-video" autoplay playsinline muted aria-label="Camera preview for the receiver’s connection QR"></video><canvas id="hotspot-camera-frame" hidden></canvas><p>Keep the other device’s QR in view. The camera stops after reading it.</p><button class="secondary-action" id="hotspot-camera-stop" type="button">Stop camera</button></div>
+                  <p class="hotspot-status" id="hotspot-network-status" role="status" aria-live="polite">Find the other device’s Wi-Fi below, or scan its QR to fill everything.</p>
+                  <ul class="hotspot-networks" id="hotspot-networks" aria-label="Nearby Wi-Fi networks"></ul>
+                </div>
+                <form id="hotspot-join-form" class="hotspot-join" hidden novalidate>
+                  <div class="hotspot-selected" id="hotspot-selected" hidden><strong id="hotspot-selected-name"></strong><span id="hotspot-selected-note"></span></div>
+                  <details class="disclosure hotspot-manual-credentials" id="hotspot-manual-credentials" open><summary>Wi-Fi details<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary>
+                  <div class="field" id="hotspot-name-field"><label for="hotspot-ssid">Receiver’s Wi-Fi name</label><input id="hotspot-ssid" autocomplete="off" spellcheck="false" aria-describedby="hotspot-ssid-error"/><small class="field-error" id="hotspot-ssid-error" hidden></small></div>
+                  <div class="field"><label for="hotspot-password">Wi-Fi password</label><div class="password-control"><input id="hotspot-password" type="password" autocomplete="off" aria-describedby="hotspot-password-error"/><button type="button" class="text-button" id="hotspot-password-toggle" aria-pressed="false">Show</button></div><small class="field-error" id="hotspot-password-error" hidden></small></div>
+                  </details><button class="secondary-action" id="hotspot-join" type="submit">Connect</button>
+                </form>
+                <div class="hotspot-actions"><button class="secondary-action" id="hotspot-wifi-settings" type="button">Open Wi-Fi settings</button><button class="secondary-action" id="hotspot-find" type="button">I’ve connected · Find receiver</button><button class="text-button" id="hotspot-leave" type="button" hidden>Disconnect hotspot</button></div>
+                <p class="hotspot-status" id="hotspot-send-status" role="status" aria-live="polite">Connect to the receiver’s Wi-Fi, then find it below.</p>
+              </section>
               <div class="send-layout">
                 <div class="send-main">
                   <label class="drop-zone" id="drop-zone">
@@ -169,11 +189,26 @@
                   <div class="destination-footer"><p id="send-hint">Add files and choose a receiver to get started.</p><button class="primary-action" type="button" id="send-files" disabled><svg class="icon" aria-hidden="true"><use href="#icon-send"/></svg><span>Send files</span></button><button class="secondary-action cancel-action" type="button" id="cancel-send" hidden>Cancel transfer</button></div>
                 </aside>
               </div>
-              <p class="page-footnote"><svg class="icon" aria-hidden="true"><use href="#icon-info"/></svg> Keep both devices on the same Wi-Fi or local network.</p>
+              <p class="page-footnote"><svg class="icon" aria-hidden="true"><use href="#icon-info"/></svg> Use the same local network, or join the receiver’s hotspot. Files stay between your devices.</p>
             </article>
 
             <article class="tool-panel" id="receive-panel" data-panel="receive" hidden aria-labelledby="receive-title">
               <div class="page-heading"><div><p class="eyebrow">To this device</p><h1 id="receive-title" tabindex="-1">Receive files</h1><p class="page-description">Give your other device a place to send.</p></div><button class="primary-action" type="button" id="toggle-receiver"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg><span>Start receiving</span></button></div>
+              <fieldset class="connection-choice" id="receive-connection-choice"><legend>Connection</legend><label><input type="radio" name="receive-connection" value="lan" checked/><span>Local network<small>Existing Wi-Fi or LAN</small></span></label><label><input type="radio" name="receive-connection" value="hotspot"/><span>Hotspot<small>No router needed</small></span></label></fieldset>
+              <section class="panel hotspot-panel" id="hotspot-receive" hidden aria-labelledby="hotspot-receive-title">
+                <div class="hotspot-heading"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><h2 id="hotspot-receive-title">Create a receiver hotspot</h2><p id="hotspot-capability">Checking this device’s hotspot support…</p></div><span class="status-badge" id="hotspot-state">Not started</span></div>
+                <div class="hotspot-qr" id="hotspot-qr" hidden><canvas id="hotspot-qr-code" role="img" aria-label="Wi-Fi and receiver connection QR code"></canvas><div><h3>Scan to connect</h3><p id="hotspot-qr-hint" role="status">On the other device, open Send → Hotspot → Scan QR. No password typing.</p><p class="muted">Keep this QR private. It includes this session’s Wi-Fi credentials.</p></div></div>
+                <div class="hotspot-actions"><button class="secondary-action" type="button" id="hotspot-create" disabled>Create hotspot &amp; receive</button><button class="secondary-action" type="button" id="hotspot-stop" hidden>Stop hotspot</button><button class="text-button" type="button" id="hotspot-system-settings">System hotspot settings</button><button class="text-button" type="button" id="hotspot-manual-ready" hidden>I’ve enabled it · Refresh addresses</button></div>
+                <details class="disclosure" id="hotspot-external-setup" hidden><summary>Share a system hotspot by QR<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><form id="hotspot-external-form" class="hotspot-external-form">
+                  <p>Enable this device’s hotspot in Settings first, then copy its WPA2 Wi-Fi details here. The other device can scan your QR. These details stay in this session.</p>
+                  <div class="field"><label for="hotspot-external-ssid">Hotspot Wi-Fi name</label><input id="hotspot-external-ssid" type="text" autocomplete="off" aria-describedby="hotspot-external-ssid-error"/><small class="field-error" id="hotspot-external-ssid-error" hidden></small></div>
+                  <div class="field"><label for="hotspot-external-password">Hotspot Wi-Fi password</label><input id="hotspot-external-password" type="password" autocomplete="off" aria-describedby="hotspot-external-password-error"/><small class="field-error" id="hotspot-external-password-error" hidden></small></div>
+                  <button class="secondary-action" type="submit" id="hotspot-external-share">Show connection QR</button>
+                </form></details>
+                <details class="disclosure" id="hotspot-credentials-details" hidden><summary>Wi-Fi name and password<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><div class="hotspot-credentials" id="hotspot-credentials" hidden><div><span>Wi-Fi name</span><strong id="hotspot-network-name"></strong></div><div><span>Wi-Fi password</span><code id="hotspot-network-password"></code></div><button class="secondary-action" type="button" id="hotspot-copy">Copy Wi-Fi details</button></div></details>
+                <details class="disclosure hotspot-help"><summary>How to connect your sender<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><ol class="hotspot-steps"><li>Create a hotspot here. Keep PulseDrop open while transferring.</li><li>On the other device, open Send → Hotspot → Scan QR, then choose Connect.</li><li>You can also choose a nearby Wi-Fi network and enter its password manually.</li></ol></details>
+                <p class="hotspot-status" id="hotspot-receive-status" role="status" aria-live="polite">Your normal local-network receiver stays available.</p>
+              </section>
               <section class="transfer-monitor panel receive-monitor" id="receive-monitor" hidden aria-labelledby="receive-label">
                 <h2 class="transfer-label" id="receive-label">Receiving</h2>
                 <div class="transfer-monitor-top"><strong id="receive-name">Incoming file</strong><span id="receive-percent" class="mono">0%</span></div>

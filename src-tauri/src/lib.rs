@@ -17,11 +17,114 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod camera;
 mod discovery;
+mod hotspot;
 mod network;
 mod receive;
 mod transfers;
 use network::*;
+
+#[tauri::command]
+fn qr_camera_active(state: State<'_, camera::CameraAccess>, active: bool) {
+    state.request(active);
+}
+
+#[tauri::command]
+async fn scan_hotspots(app: AppHandle) -> Result<Vec<hotspot::WifiNetwork>, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<hotspot::HotspotState>().scan())
+        .await
+        .map_err(|_| "Could not scan nearby Wi-Fi")?
+}
+
+#[tauri::command]
+async fn join_hotspot(
+    app: AppHandle,
+    ssid: String,
+    password: String,
+    bssid: Option<String>,
+    interface: Option<String>,
+) -> Result<hotspot::Session, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<hotspot::HotspotState>()
+            .join(ssid, password, bssid, interface)
+    })
+    .await
+    .map_err(|_| "Could not connect to the hotspot")?
+}
+
+#[tauri::command]
+async fn hotspot_capabilities(app: AppHandle) -> Result<hotspot::Capabilities, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<hotspot::HotspotState>().capabilities()
+    })
+    .await
+    .map_err(|_| "Could not check hotspot support".into())
+}
+
+#[tauri::command]
+async fn hotspot_status(app: AppHandle) -> Result<Option<hotspot::Session>, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<hotspot::HotspotState>().current())
+        .await
+        .map_err(|_| "Could not check hotspot state")?
+}
+
+#[tauri::command]
+async fn start_hotspot(app: AppHandle) -> Result<hotspot::Session, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<hotspot::HotspotState>().start())
+        .await
+        .map_err(|_| "Could not start the hotspot")?
+}
+
+#[tauri::command]
+async fn stop_hotspot(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<hotspot::HotspotState>().stop())
+        .await
+        .map_err(|_| "Could not stop the hotspot")?
+}
+
+#[tauri::command]
+fn open_wifi_settings(app: AppHandle, hosting: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let url = if hosting {
+            "ms-settings:network-mobilehotspot"
+        } else {
+            "ms-settings:network-wifi"
+        };
+        return app
+            .opener()
+            .open_url(url, None::<&str>)
+            .map_err(|_| "Open Network & Internet in Windows Settings.".into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (app, hosting);
+        return std::process::Command::new("gnome-control-center")
+            .arg("wifi")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|_| "Open Wi-Fi from your desktop's network settings.".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (app, hosting);
+        return std::process::Command::new("open")
+            .args(["-a", "System Settings"])
+            .spawn()
+            .map(|_| ())
+            .map_err(|_| "Open Wi-Fi in System Settings.".into());
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (app, hosting);
+        Err("Open Wi-Fi in your device's Settings app.".into())
+    }
+}
 
 struct DiscoveryState {
     id: String,
@@ -1117,7 +1220,24 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(ReceiverState::default())
         .manage(DiscoveryState::default())
+        .manage(hotspot::HotspotState::default())
+        .manage(camera::CameraAccess::default())
+        .setup(|app| {
+            #[cfg(target_os = "linux")]
+            camera::configure(app)?;
+            #[cfg(not(target_os = "linux"))]
+            let _ = app;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            qr_camera_active,
+            scan_hotspots,
+            join_hotspot,
+            hotspot_capabilities,
+            hotspot_status,
+            start_hotspot,
+            stop_hotspot,
+            open_wifi_settings,
             device_profile,
             discover_receivers,
             start_receiver,
@@ -1128,6 +1248,11 @@ pub fn run() {
             fix_windows_network_profile,
             fix_windows_firewall
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running PulseDrop");
+        .build(tauri::generate_context!())
+        .expect("error while building PulseDrop")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                let _ = app.state::<hotspot::HotspotState>().stop();
+            }
+        });
 }

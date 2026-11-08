@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Scan the other device’s PulseDrop connection QR. Camera frames stay on this device.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>macOS requires Location access to show nearby Wi-Fi names. PulseDrop does not request your coordinates.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Show nearby Wi-Fi networks so you can connect to the other device’s hotspot.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>PulseDrop uses your local network to discover nearby receivers and transfer files between your devices.</string>
 </dict>

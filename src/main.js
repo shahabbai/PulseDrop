@@ -2,6 +2,7 @@ import { createReceiverDiscovery } from "./discovery.js";
 import { validateReceiver } from "./ui.js";
 import { createReceiveProgress } from "./receive-progress.js";
 import { readFileBody } from "./file-body.js";
+import { mountHotspot } from "./hotspot-ui.js";
 import { version } from "../package.json";
 
 const tauri = window.__TAURI__;
@@ -327,6 +328,7 @@ function setView(mode, options = {}) {
   const isHome = nextView === "home";
   if (state.activeView !== nextView) state.scrollPositions[state.activeView] = els.mainContent.scrollTop;
   state.activeView = nextView;
+  hotspotUI.viewChanged(nextView);
   updateDiscoveryActivity();
 
   els.appShell.dataset.view = nextView;
@@ -362,7 +364,7 @@ function syncSendControls() {
   els.sendFiles.hidden = state.sending;
   els.cancelSend.disabled = Boolean(sendSession?.cancelRequested);
   els.cancelSend.textContent = sendSession?.cancelRequested ? "Cancelling…" : "Cancel transfer";
-  els.sendFiles.disabled = state.sending || state.files.length === 0;
+  els.sendFiles.disabled = state.sending || state.files.length === 0 || hotspotUI.busy();
   if (state.sending && focusWasSend && !els.cancelSend.disabled) els.cancelSend.focus({ preventScroll: true });
   if (!state.sending && focusWasCancel) els.sendFiles.focus({ preventScroll: true });
   els.clearFiles.disabled = state.sending || state.files.length === 0;
@@ -374,6 +376,7 @@ function syncSendControls() {
   els.sendHint.textContent = state.sending ? "Keep both devices open until the transfer finishes."
     : state.files.length ? "Choose a receiver and enter its pairing code." : "Add files and choose a receiver to get started.";
   document.querySelectorAll(".remove-file, .receiver-choice").forEach((button) => { button.disabled = state.sending; });
+  hotspotUI.refresh();
 }
 
 function queueFileId(file) {
@@ -567,6 +570,7 @@ function handleReceiveProgress(payload) {
   const announcement = summary.kind === "receiving" ? `Receiving ${summary.activeCount} ${summary.activeCount === 1 ? "file" : "files"}.`
     : summary.kind === "received" ? "File received and saved to Inbox." : summary.kind === "cancelled" ? "Incoming transfer cancelled. Incomplete file removed." : "An incoming transfer was interrupted.";
   if (els.receiveAnnouncement.textContent !== announcement) els.receiveAnnouncement.textContent = announcement;
+  hotspotUI.refresh();
 }
 
 async function cancelIncoming(transferId = null) {
@@ -656,6 +660,7 @@ async function loadDeviceProfile() {
   try {
     const profile = await invoke("device_profile");
     state.networkIps = Array.isArray(profile.network_ips) ? profile.network_ips : [];
+    if (state.receiver) state.receiver = await invoke("start_receiver", { receiverName: null });
     state.selectedIp = profile.primary_ip || (state.networkIps[0] && state.networkIps[0].ip) || null;
     els.statusDot.classList.toggle("online", Boolean(state.selectedIp));
     const bridge = window.PulseDropAndroid;
@@ -665,6 +670,7 @@ async function loadDeviceProfile() {
     els.localIp.textContent = state.selectedIp || "No network";
     els.localIp.title = state.networkIps.map((address) => address.label || address.ip).join("\n");
     renderNetworkChoices();
+    if (state.receiver) renderReceiver();
   } catch (error) {
     els.deviceName.textContent = "Device unavailable";
     els.localIp.textContent = "Network unavailable";
@@ -680,7 +686,9 @@ async function toggleReceiver() {
 
   setBusy(els.toggleReceiver, true);
   try {
+    if (hotspotUI.busy()) throw new Error("Finish or cancel hotspot setup first.");
     if (state.receiver) {
+      if (hotspotUI.hostActive()) await hotspotUI.stop();
       await invoke("stop_receiver");
       state.receiver = null;
       showToast("Receiver stopped");
@@ -1033,6 +1041,7 @@ function renderSendErrors(focus = false) {
 }
 
 async function sendSelectedFiles() {
+  if (hotspotUI.busy()) return;
   if (state.sending) return;
   const endpoint = { ip: els.peerIp.value.trim(), port: Number(els.peerPort.value.trim()), code: els.peerCode.value.trim() };
   state.validationErrors = validateReceiver(endpoint);
@@ -1363,6 +1372,39 @@ async function bindTauriEvents() {
     });
   });
 }
+
+const hotspotUI = mountHotspot({
+  invoke,
+  bridge: window.PulseDropAndroid,
+  canChange: () => !state.sending && !state.activities.some((activity) => activity.kind === "receiving"),
+  copy: copyText,
+  connectionInfo: () => state.receiver ? { ip: selectedReceiverIp(), port: state.receiver.port, code: state.receiver.code } : null,
+  connected: ({ ip, port, code }) => {
+    state.selectedReceiver = null;
+    els.peerIp.value = ip; els.peerPort.value = String(port); els.peerCode.value = code;
+    state.validationErrors = {}; state.sendError = "";
+    renderSendErrors(); syncSendControls();
+  },
+  onChange: () => syncSendControls(),
+  refreshNetwork: async () => {
+    state.selectedReceiver = null;
+    for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.value = "";
+    state.validationErrors = {};
+    renderSendErrors();
+    await loadDeviceProfile();
+    receiverDiscovery.stop();
+    updateDiscoveryActivity();
+    renderDiscoveredReceivers();
+  },
+  ensureReceiver: async (address) => {
+    const bridge = window.PulseDropAndroid;
+    const receiverName = bridge?.deviceName?.() || null;
+    state.receiver = await invoke("start_receiver", { receiverName });
+    await loadDeviceProfile();
+    if (address && state.networkIps.some((candidate) => candidate.ip === address)) state.selectedIp = address;
+    renderReceiver();
+  }
+});
 
 bindEvents();
 document.querySelectorAll("[data-app-version]").forEach((element) => { element.textContent = `v${version}`; });

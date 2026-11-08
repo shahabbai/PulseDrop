@@ -18,6 +18,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  val hotspot by lazy { PulseDropHotspot(this) }
   private var discoveryRequested = false
   private var foreground = false
   private var discoveryLock: WifiManager.MulticastLock? = null
@@ -36,6 +37,7 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onPause() {
+    hotspot.pauseScan()
     foreground = false
     updateDiscoveryLock()
     super.onPause()
@@ -96,11 +98,17 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    hotspot.stop()
     discoveryRequested = false
     foreground = false
     updateDiscoveryLock()
     PulseDropStorageMirror.stop()
     super.onDestroy()
+  }
+
+  override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    hotspot.onPermissionsResult(requestCode, grantResults)
   }
 
   private fun requestLegacyWritePermission() {
