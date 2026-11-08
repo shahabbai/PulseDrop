@@ -18,6 +18,7 @@
 - Add setup cancellation, hotspot-loss feedback, temporary credential cleanup and protection against older setup/scan results interfering with a newer connection.
 - Release app-owned hotspot connections on stop and attempt to restore the previous network without overriding a network chosen manually in system settings.
 - Keep QR generation and decoding on the device. Camera scanning requests video only and stops after a scan, cancellation, timeout, leaving Send or app backgrounding.
+- Fix macOS native compilation by checking its supported Location authorization status and replacing deprecated Wi-Fi enumeration. Check native API compatibility against the Apple SDK for both desktop architectures before building in CI and Release.
 
 ### Compatibility and downloads
 

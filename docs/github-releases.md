@@ -177,6 +177,7 @@ git push origin v0.4.1
 
 ## If a run fails
 
+- If native compilation reports that `kCLAuthorizationStatusAuthorizedWhenInUse` is unavailable on macOS, use the macOS authorization grant (`kCLAuthorizationStatusAuthorizedAlways`). The adapter reads the instance authorization property on macOS 11+ and retains the legacy getter only for older supported systems. Both macOS workflows run `bash scripts/check-macos-wifi.sh` against Apple Silicon and Intel deployment targets before Rust compilation so unavailable/deprecated SDK APIs fail in a named native check. Commit/push the correction to trigger CI on the new source; rerunning an older revision keeps the original error.
 - If the macOS build succeeds but verification cannot find `PulseDrop.app/Contents/Info.plist`, ensure its build command uses `--bundles app,dmg`. Tauri removes the intermediate `.app` when only `dmg` is requested. Commit and push the workflow fix to start a new CI run; rerunning the previous run uses the old command.
 - A missing secret fails the Android release job with the secret names to configure. Add them, then use **Re-run failed jobs**.
 - If Rust compilation reports that `frontendDist` (`../dist`) does not exist, build the frontend in that same job before `cargo test`. Desktop jobs do this explicitly because `tauri::generate_context!()` embeds frontend assets at compile time. The frontend built in the separate checks job is not shared with other runners. Commit/push workflow fixes to trigger a new CI run; rerunning an old run uses its original workflow revision.

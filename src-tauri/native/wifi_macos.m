@@ -9,14 +9,32 @@
 static CLLocationManager *locationManager;
 static NSDictionary *failure(NSString *message) { return @{ @"error": message }; }
 static BOOL locationAllowed(void) {
-    CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
-    if (status == kCLAuthorizationStatusNotDetermined) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (!locationManager) locationManager = [[CLLocationManager alloc] init];
+    __block BOOL allowed = NO;
+    void (^checkAuthorization)(void) = ^{
+        // Keep the manager and its authorization request on the main thread.
+        // The prompt is asynchronous: an undecided scan returns the existing
+        // permission guidance, and Refresh checks the user's new decision.
+        if (!locationManager) locationManager = [[CLLocationManager alloc] init];
+        CLAuthorizationStatus status;
+        if (@available(macOS 11.0, *)) {
+            status = locationManager.authorizationStatus;
+        } else {
+            // The class getter is required on supported pre-11 macOS releases.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            status = [CLLocationManager authorizationStatus];
+#pragma clang diagnostic pop
+        }
+        if (status == kCLAuthorizationStatusNotDetermined) {
             if (@available(macOS 10.15, *)) [locationManager requestWhenInUseAuthorization];
-        });
-    }
-    return status == kCLAuthorizationStatusAuthorizedAlways || status == kCLAuthorizationStatusAuthorizedWhenInUse;
+        }
+        // macOS reports its grant as AuthorizedAlways. The WhenInUse enum
+        // case is unavailable on macOS, even though the request method exists.
+        allowed = status == kCLAuthorizationStatusAuthorizedAlways;
+    };
+    if ([NSThread isMainThread]) checkAuthorization();
+    else dispatch_sync(dispatch_get_main_queue(), checkAuthorization);
+    return allowed;
 }
 static NSString *privacyMessage = @"To show Wi-Fi names, allow Location for PulseDrop in System Settings → Privacy & Security → Location Services, then refresh Wi-Fi. macOS requires this for nearby Wi-Fi discovery.";
 static BOOL validName(NSString *name) {
@@ -34,7 +52,7 @@ static CWInterface *findInterface(NSString *name) {
 }
 static NSDictionary *perform(NSDictionary *request) {
     NSString *operation = request[@"operation"];
-    if ([operation isEqualToString:@"available"]) return @{ @"available": @([CWWiFiClient interfaceNames].count > 0) };
+    if ([operation isEqualToString:@"available"]) return @{ @"available": @([CWWiFiClient sharedWiFiClient].interfaces.count > 0) };
     if (!locationAllowed()) return failure(privacyMessage);
     CWInterface *adapter = findInterface(request[@"interface"]);
     if (!adapter || !adapter.powerOn) return failure(@"No active Wi-Fi adapter. Enable Wi-Fi and refresh.");
