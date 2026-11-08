@@ -1,4 +1,7 @@
-﻿import { createReceiverDiscovery } from "./discovery.js";
+import { createReceiverDiscovery } from "./discovery.js";
+import { validateReceiver } from "./ui.js";
+import { createReceiveProgress } from "./receive-progress.js";
+import { version } from "../package.json";
 
 const tauri = window.__TAURI__;
 const invoke = tauri && tauri.core && tauri.core.invoke;
@@ -27,6 +30,14 @@ const state = {
 
 state.discoveredReceivers = [];
 state.selectedReceiver = null;
+state.sending = false;
+state.discoveryScanning = false;
+state.validationErrors = {};
+state.sendError = "";
+state.scrollPositions = {};
+const queuedFileIds = new WeakMap();
+const queuedFileStates = new WeakMap();
+const incomingProgress = createReceiveProgress();
 
 function createId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -37,6 +48,28 @@ function createId() {
 
 const els = {
   appShell: document.querySelector("#app-shell"),
+  mainContent: document.querySelector("#main-content"),
+  manualConnection: document.querySelector("#manual-connection"),
+  sendError: document.querySelector("#send-error"),
+  sendHint: document.querySelector("#send-hint"),
+  scanIndicator: document.querySelector("#scan-indicator"),
+  queueCount: document.querySelector("#queue-count"),
+  transferProgress: document.querySelector("#transfer-progress"),
+  transferAnnouncement: document.querySelector("#transfer-announcement"),
+  receiveMonitor: document.querySelector("#receive-monitor"),
+  receiveName: document.querySelector("#receive-name"),
+  receivePercent: document.querySelector("#receive-percent"),
+  receiveProgress: document.querySelector("#receive-progress"),
+  receiveFill: document.querySelector("#receive-fill"),
+  receiveBytes: document.querySelector("#receive-bytes"),
+  receiveSpeed: document.querySelector("#receive-speed"),
+  receiveLabel: document.querySelector("#receive-label"),
+  receiveAnnouncement: document.querySelector("#receive-announcement"),
+  receiverSession: document.querySelector("#receiver-session"),
+  receiverStateTitle: document.querySelector("#receiver-state-title"),
+  receiverStateDescription: document.querySelector("#receiver-state-description"),
+  navReceiverIndicator: document.querySelector("#nav-receiver-indicator"),
+  reduceMotion: document.querySelector("#reduce-motion"),
   homeScreen: document.querySelector("#home-screen"),
   workflowScreen: document.querySelector("#workflow-screen"),
   homeSend: document.querySelector("#home-send"),
@@ -105,30 +138,42 @@ const receiverDiscovery = createReceiverDiscovery({
   scan: () => invoke("discover_receivers"),
   onChange({ receivers, scanning, error }) {
     state.discoveredReceivers = receivers;
-    els.refreshReceivers.disabled = scanning;
+    state.discoveryScanning = scanning;
+    els.refreshReceivers.disabled = scanning || state.sending;
+    els.scanIndicator.hidden = !scanning;
+    els.discoveryStatus.dataset.error = String(Boolean(error));
     els.receiverList.setAttribute("aria-busy", String(scanning));
     if (error) {
-      els.discoveryStatus.textContent = `${error} You can enter the receiver address below.`;
+      els.discoveryStatus.textContent = `${error} Use “Enter address manually” to connect.`;
     } else if (scanning) {
       els.discoveryStatus.textContent = "Searching on your LAN…";
     } else if (state.selectedReceiver && !receivers.some((peer) => peer.id === state.selectedReceiver.id)) {
       els.discoveryStatus.textContent = "The selected receiver is no longer visible. Check that it is still receiving, or enter its address below.";
     } else {
       els.discoveryStatus.textContent = receivers.length
-        ? `${receivers.length} ${receivers.length === 1 ? "receiver" : "receivers"} found. Select a device to connect.`
-        : "No receivers found. Start Receive on another device on the same Wi-Fi. If discovery is blocked, enter its address below.";
+        ? `${receivers.length} ${receivers.length === 1 ? "receiver" : "receivers"} ready. Choose a device below.`
+        : "No receivers yet. Open Receive on your other device, or enter its address manually.";
     }
     if (!scanning || receivers.length === 0) renderDiscoveredReceivers();
   }
 });
 
 function renderDiscoveredReceivers() {
+  const focusedId = document.activeElement && document.activeElement.dataset.receiverId;
   els.receiverList.replaceChildren();
   for (const peer of state.discoveredReceivers) {
     const row = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.className = "receiver-choice";
+    button.dataset.receiverId = peer.id;
+    button.disabled = state.sending;
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "icon");
+    icon.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", /android|ios/i.test(peer.platform) ? "#icon-phone" : "#icon-device");
+    icon.append(use);
     const selected = state.selectedReceiver && state.selectedReceiver.id === peer.id
       && els.peerIp.value.trim() === peer.ip && Number(els.peerPort.value) === peer.port;
     button.setAttribute("aria-pressed", String(Boolean(selected)));
@@ -139,19 +184,25 @@ function renderDiscoveredReceivers() {
     address.textContent = `${peer.platform} · ${peer.ip}:${peer.port}`;
     info.append(name, address);
     const action = document.createElement("span");
+    action.className = "receiver-choice-action";
     action.textContent = selected ? "Selected" : "Select";
-    button.append(info, action);
+    button.append(icon, info, action);
     button.addEventListener("click", () => {
+      if (state.sending) return;
       if (!selected) els.peerCode.value = "";
       state.selectedReceiver = peer;
       els.peerIp.value = peer.ip;
       els.peerPort.value = String(peer.port);
+      state.validationErrors = {};
+      state.sendError = "";
+      renderSendErrors();
       renderDiscoveredReceivers();
       els.peerCode.focus();
       showToast("Enter the code shown on the receiving device");
     });
     row.append(button);
     els.receiverList.append(row);
+    if (focusedId === peer.id) button.focus({ preventScroll: true });
   }
 }
 
@@ -198,6 +249,8 @@ function resetTransferMonitor() {
   els.transferName.textContent = "Ready";
   els.transferPercent.textContent = "0%";
   els.transferFill.style.width = "0%";
+  els.transferProgress.setAttribute("aria-valuenow", "0");
+  els.transferAnnouncement.textContent = "";
   els.transferBytes.textContent = "0 B of 0 B";
   els.transferSpeed.textContent = "0 B/s";
 }
@@ -210,11 +263,16 @@ function updateTransferMonitor(details = {}) {
 
   els.transferMonitor.hidden = false;
   els.transferMonitor.classList.toggle("is-active", details.active !== false);
-  els.transferMonitor.classList.toggle("is-complete", details.kind === "complete" || percent >= 100);
+  els.transferMonitor.classList.toggle("is-complete", details.kind === "complete");
   els.transferMonitor.classList.toggle("is-failed", details.kind === "failed");
   els.transferName.textContent = details.name || "Transfer";
   els.transferPercent.textContent = Math.round(percent) + "%";
   els.transferFill.style.width = percent + "%";
+  els.transferProgress.setAttribute("aria-valuenow", String(Math.round(percent)));
+  const announcement = details.kind === "complete" ? "Transfer complete. All files sent."
+    : details.kind === "failed" ? "Transfer failed. Check the connection and try again."
+    : "Transfer in progress.";
+  if (els.transferAnnouncement.textContent !== announcement) els.transferAnnouncement.textContent = announcement;
   els.transferBytes.textContent = totalBytes
     ? formatBytes(loadedBytes) + " of " + formatBytes(totalBytes)
     : formatBytes(loadedBytes);
@@ -225,14 +283,12 @@ function showToast(message) {
   els.toast.textContent = message;
   els.toast.classList.add("show");
   window.clearTimeout(showToast.timeout);
-  showToast.timeout = window.setTimeout(() => els.toast.classList.remove("show"), 2600);
+  showToast.timeout = window.setTimeout(() => els.toast.classList.remove("show"), 4500);
 }
 
 function setBusy(button, busy) {
   button.disabled = busy;
-  if (button.dataset.label === undefined) {
-    button.dataset.label = button.textContent.trim();
-  }
+  button.setAttribute("aria-busy", String(busy));
 }
 
 function normalizeView(mode) {
@@ -245,7 +301,9 @@ function viewFromLocation() {
 
 function writeViewHistory(view, replaceHistory) {
   const hash = view === "home" ? "#home" : `#${view}`;
-  const stateValue = { view };
+  const previous = window.history.state;
+  const depth = replaceHistory || !previous ? 0 : (previous.depth || 0) + 1;
+  const stateValue = { view, depth };
 
   if (replaceHistory || !window.history.state) {
     window.history.replaceState(stateValue, "", hash);
@@ -260,6 +318,7 @@ function writeViewHistory(view, replaceHistory) {
 function setView(mode, options = {}) {
   const nextView = normalizeView(mode);
   const isHome = nextView === "home";
+  if (state.activeView !== nextView) state.scrollPositions[state.activeView] = els.mainContent.scrollTop;
   state.activeView = nextView;
   updateDiscoveryActivity();
 
@@ -269,53 +328,65 @@ function setView(mode, options = {}) {
   els.sendPanel.hidden = nextView !== "send";
   els.receivePanel.hidden = nextView !== "receive";
   els.settingsPanel.hidden = nextView !== "settings";
+  els.backHome.hidden = isHome;
+  document.querySelectorAll(".nav-item").forEach((button) => {
+    if (button.dataset.mode === nextView) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+  els.workflowKicker.textContent = "Workspace";
+  els.workflowTitle.textContent = { home: "Home", send: "Send files", receive: "Receive files", settings: "Settings" }[nextView];
 
   if (options.updateHistory !== false) {
     writeViewHistory(nextView, Boolean(options.replaceHistory));
   }
 
-  if (!isHome) {
-    const titles = {
-      send: "Send Files",
-      receive: "Receive Files",
-      settings: "Settings"
-    };
-    els.workflowKicker.textContent = nextView === "settings" ? "System" : nextView;
-    els.workflowTitle.textContent = titles[nextView] || "PulseDrop";
-    if (nextView === "settings") loadWindowsDiagnostics();
-    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  if (nextView === "settings") loadWindowsDiagnostics();
+  els.mainContent.scrollTop = state.scrollPositions[nextView] || 0;
+  if (options.focus !== false) {
+    const heading = document.querySelector(isHome ? "#home-title" : `#${nextView}-title`);
+    heading.focus({ preventScroll: true });
   }
 }
 
-function bindModeButtonGlow(button) {
-  if (!button) return;
+function syncSendControls() {
+  els.sendFiles.disabled = state.sending || state.files.length === 0;
+  els.clearFiles.disabled = state.sending || state.files.length === 0;
+  els.fileInput.disabled = state.sending;
+  for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.disabled = state.sending;
+  els.refreshReceivers.disabled = !invoke || state.sending || state.discoveryScanning;
+  els.sendFiles.setAttribute("aria-busy", String(state.sending));
+  els.sendFiles.querySelector("span").textContent = state.sending ? "Sending…" : "Send files";
+  els.sendHint.textContent = state.sending ? "Keep both devices open until the transfer finishes."
+    : state.files.length ? "Choose a receiver and enter its pairing code." : "Add files and choose a receiver to get started.";
+  document.querySelectorAll(".remove-file, .receiver-choice").forEach((button) => { button.disabled = state.sending; });
+}
 
-  const resetGlow = () => {
-    button.style.setProperty("--mx", "50%");
-    button.style.setProperty("--my", "50%");
-  };
+function queueFileId(file) {
+  if (!queuedFileIds.has(file)) queuedFileIds.set(file, createId());
+  return queuedFileIds.get(file);
+}
 
-  button.addEventListener("pointermove", (event) => {
-    const rect = button.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-    button.style.setProperty("--mx", `${Math.max(0, Math.min(100, x))}%`);
-    button.style.setProperty("--my", `${Math.max(0, Math.min(100, y))}%`);
-  });
-
-  button.addEventListener("pointerleave", resetGlow);
-  resetGlow();
+function updateQueuedFile(file, activity) {
+  queuedFileStates.set(file, activity);
+  const row = Array.from(els.fileList.children).find((element) => element.dataset.fileId === queueFileId(file));
+  if (!row) return;
+  row.dataset.status = activity.kind || "queued";
+  row.querySelector(".queue-file-state").textContent = activity.kind === "sent" ? "Sent"
+    : activity.kind === "failed" ? "Failed · retry available"
+    : activity.kind === "sending" ? `Sending ${Math.round(clampPercent(activity.progress || 0))}%` : "Queued";
 }
 
 function renderFiles() {
   els.fileList.innerHTML = "";
   const total = state.files.reduce((sum, file) => sum + file.size, 0);
   els.queueTotal.textContent = formatBytes(total);
+  els.queueCount.textContent = String(state.files.length);
+  syncSendControls();
 
   if (state.files.length === 0) {
     const empty = document.createElement("li");
     empty.className = "empty-list";
-    empty.textContent = "No files selected";
+    empty.innerHTML = '<span>No files in your queue</span><small>Add a few files above to get started.</small>';
     els.fileList.append(empty);
     return;
   }
@@ -323,20 +394,26 @@ function renderFiles() {
   state.files.forEach((file, index) => {
     const row = document.createElement("li");
     row.className = "file-row";
+    row.dataset.fileId = queueFileId(file);
     row.innerHTML = `
-      <div>
+      <span class="file-type-icon"><svg class="icon" aria-hidden="true"><use href="#icon-file"></use></svg></span>
+      <div class="file-copy">
         <strong title="${escapeAttr(file.name)}">${escapeHtml(file.name)}</strong>
-        <span>${formatBytes(file.size)}</span>
+        <span>${formatBytes(file.size)}<span class="queue-file-state">Queued</span></span>
       </div>
-      <button class="remove-file" type="button" title="Remove file" aria-label="Remove file">
-        <svg class="icon"><use href="#icon-trash"></use></svg>
+      <button class="remove-file" type="button" title="Remove ${escapeAttr(file.name)}" aria-label="Remove ${escapeAttr(file.name)}" ${state.sending ? "disabled" : ""}>
+        <svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg>
       </button>
     `;
     row.querySelector("button").addEventListener("click", () => {
       state.files.splice(index, 1);
       renderFiles();
+      const next = els.fileList.querySelectorAll(".remove-file")[Math.min(index, state.files.length - 1)];
+      (next || els.fileInput).focus();
     });
     els.fileList.append(row);
+    const activity = queuedFileStates.get(file);
+    if (activity) updateQueuedFile(file, activity);
   });
 }
 
@@ -368,6 +445,7 @@ function renderNetworkChoices() {
     button.className = "network-chip";
     if (address.is_vpn_like) button.classList.add("vpn-like");
     if (address.ip === selectedIp) button.classList.add("active");
+    button.setAttribute("aria-pressed", String(address.ip === selectedIp));
     button.textContent = address.label || address.ip;
     button.title = address.is_vpn_like ? "VPN or tunnel address" : "Local network address";
     button.addEventListener("click", () => {
@@ -384,22 +462,30 @@ function renderReceiver() {
   const active = Boolean(state.receiver);
   const receiverIp = active ? selectedReceiverIp() : null;
   els.receiverState.textContent = active ? "Online" : "Offline";
+  els.receiverSession.classList.toggle("is-live", active);
+  els.receiverStateTitle.textContent = active ? "Ready to receive" : "Ready when you are";
+  els.receiverStateDescription.textContent = active ? "Select this device on your sender, then enter the pairing code below." : "Start receiving to make this device visible on your network.";
+  els.navReceiverIndicator.hidden = !active;
   els.sessionIp.textContent = receiverIp || "--";
   els.sessionPort.textContent = active && state.receiver.port ? state.receiver.port : "--";
   els.sessionCode.textContent = active && state.receiver.code ? state.receiver.code : "--";
-  els.inboxPath.textContent = active && state.receiver.inbox_dir ? state.receiver.inbox_dir : "Not started";
-  els.toggleReceiver.title = active ? "Stop receiver" : "Start receiver";
+  els.inboxPath.textContent = active && state.receiver.inbox_dir ? state.receiver.inbox_dir : "Start receiving to create your Inbox";
+  els.inboxPath.title = els.inboxPath.textContent;
+  els.openInbox.disabled = !active;
+  for (const button of [els.copyIp, els.copyPort, els.copyCode]) button.disabled = !active;
+  els.toggleReceiver.title = active ? "Stop receiving" : "Start receiving";
   els.toggleReceiver.setAttribute("aria-label", els.toggleReceiver.title);
   els.toggleReceiver.classList.toggle("is-live", active);
   els.toggleReceiver.innerHTML = active
-    ? '<svg class="icon"><use href="#icon-stop"></use></svg>'
-    : '<svg class="icon"><use href="#icon-play"></use></svg>';
+    ? '<svg class="icon" aria-hidden="true"><use href="#icon-stop"></use></svg><span>Stop receiving</span>'
+    : '<svg class="icon" aria-hidden="true"><use href="#icon-play"></use></svg><span>Start receiving</span>';
   els.receiverDiscoveryStatus.hidden = !active;
   els.receiverDiscoveryStatus.textContent = active
     ? (state.receiver.discovery_error
       ? `${state.receiver.discovery_error}. Share the IP, port, and code to connect manually.`
-      : "Visible to other PulseDrop devices on your LAN. Senders still need the code above.")
+      : "Visible on your local network. Only share this code with someone you trust.")
     : "";
+  els.receiverDiscoveryStatus.dataset.error = String(Boolean(active && state.receiver.discovery_error));
   updateDiscoveryActivity();
   renderNetworkChoices();
 }
@@ -410,7 +496,8 @@ function addActivity(activity) {
     progress: 0,
     ...activity
   });
-  state.activities = state.activities.slice(0, 12);
+  trimActivities();
+  if (activity.file) updateQueuedFile(activity.file, state.activities[0]);
   renderActivities();
 }
 
@@ -418,18 +505,56 @@ function updateActivity(id, patch) {
   const item = state.activities.find((activity) => activity.id === id);
   if (!item) return;
   Object.assign(item, patch);
+  if (item.file) updateQueuedFile(item.file, item);
+  trimActivities();
   renderActivities();
+}
+
+function trimActivities() {
+  let recent = 0;
+  state.activities = state.activities.filter((item) => ["receiving", "sending"].includes(item.kind) || recent++ < 12);
+}
+
+function handleReceiveProgress(payload) {
+  const update = incomingProgress.accept(payload);
+  if (!update) return;
+  const { item, completed, summary } = update;
+  const activity = {
+    ...item,
+    label: item.kind === "received" ? `Received ${formatBytes(item.size)}`
+      : item.kind === "failed" ? item.error || "Transfer interrupted. Ask the sender to retry."
+      : `Receiving ${formatBytes(item.received)} of ${formatBytes(item.size)}`
+  };
+  if (completed) state.inboxCount += 1;
+  if (state.activities.some((entry) => entry.id === item.id)) updateActivity(item.id, activity);
+  else addActivity(activity);
+
+  els.receiveMonitor.hidden = false;
+  els.receiveMonitor.classList.toggle("is-active", summary.kind === "receiving");
+  els.receiveMonitor.classList.toggle("is-complete", summary.kind === "received");
+  els.receiveMonitor.classList.toggle("is-failed", summary.kind === "failed");
+  els.receiveName.textContent = summary.name;
+  els.receiveLabel.textContent = summary.kind === "receiving" ? "Receiving" : summary.kind === "received" ? "File received" : "Transfer interrupted";
+  els.receivePercent.textContent = `${Math.round(summary.progress)}%`;
+  els.receiveProgress.setAttribute("aria-valuenow", String(Math.round(summary.progress)));
+  els.receiveFill.style.width = `${summary.progress}%`;
+  els.receiveBytes.textContent = `${formatBytes(summary.received)} of ${formatBytes(summary.size)}`;
+  els.receiveSpeed.textContent = summary.kind === "receiving" ? formatSpeed(summary.speed)
+    : summary.kind === "received" ? "Saved to Inbox" : "Ask the sender to retry";
+  const announcement = summary.kind === "receiving" ? `Receiving ${summary.activeCount} ${summary.activeCount === 1 ? "file" : "files"}.`
+    : summary.kind === "received" ? "File received and saved to Inbox." : "An incoming transfer was interrupted.";
+  if (els.receiveAnnouncement.textContent !== announcement) els.receiveAnnouncement.textContent = announcement;
 }
 
 function renderActivities() {
   els.activityList.innerHTML = "";
-  els.activityTotal.textContent = state.activities.length ? state.activities.length + " recent" : "Idle";
+  els.activityTotal.textContent = state.activities.length ? state.activities.length + " recent" : "No transfers";
   els.inboxCount.textContent = state.inboxCount + " " + (state.inboxCount === 1 ? "file" : "files");
 
   if (state.activities.length === 0) {
     const empty = document.createElement("li");
     empty.className = "empty-list";
-    empty.textContent = "No transfers yet";
+    empty.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>No transfers yet</span><small>Your received files and recent transfers will appear here.</small>';
     els.activityList.append(empty);
     return;
   }
@@ -438,8 +563,10 @@ function renderActivities() {
     const progress = clampPercent(activity.progress || 0);
     const row = document.createElement("li");
     row.className = "activity-row " + (activity.kind || "");
+    row.dataset.transferId = activity.id;
 
     const info = document.createElement("div");
+    info.className = "activity-copy";
     const name = document.createElement("strong");
     name.title = activity.name || "";
     name.textContent = activity.name || "";
@@ -462,17 +589,29 @@ function renderActivities() {
 
     const track = document.createElement("div");
     track.className = "progress-track";
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-label", `${activity.direction === "receive" ? "Incoming" : "Outgoing"} transfer: ${activity.name}`);
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", "100");
+    track.setAttribute("aria-valuenow", String(Math.round(progress)));
     const fill = document.createElement("div");
     fill.className = "progress-fill";
     fill.style.width = progress + "%";
     track.append(fill);
 
-    row.append(info, meter, track);
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "icon");
+    icon.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", activity.kind === "failed" ? "#icon-info" : ["received", "receiving"].includes(activity.kind) ? "#icon-download" : "#icon-upload");
+    icon.append(use);
+    row.append(icon, info, meter, track);
     els.activityList.append(row);
   });
 }
 
 function addFiles(fileList) {
+  if (state.sending) return;
   const incoming = Array.from(fileList || []);
   const existing = new Set(state.files.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
   for (const file of incoming) {
@@ -497,7 +636,7 @@ async function loadDeviceProfile() {
     const profile = await invoke("device_profile");
     state.networkIps = Array.isArray(profile.network_ips) ? profile.network_ips : [];
     state.selectedIp = profile.primary_ip || (state.networkIps[0] && state.networkIps[0].ip) || null;
-    els.statusDot.classList.add("online");
+    els.statusDot.classList.toggle("online", Boolean(state.selectedIp));
     const bridge = window.PulseDropAndroid;
     els.deviceName.textContent = bridge && typeof bridge.deviceName === "function"
       ? bridge.deviceName() : profile.name;
@@ -535,6 +674,9 @@ async function toggleReceiver() {
     renderReceiver();
   } catch (error) {
     showToast(String(error));
+    els.receiverDiscoveryStatus.hidden = false;
+    els.receiverDiscoveryStatus.dataset.error = "true";
+    els.receiverDiscoveryStatus.textContent = `Could not change the receiver state: ${String(error.message || error)}. Try again or check your network.`;
   } finally {
     setBusy(els.toggleReceiver, false);
   }
@@ -578,7 +720,7 @@ function receiverUrl(endpoint, path) {
 }
 
 function receiverUnavailableMessage(endpoint) {
-  return `Could not reach ${endpoint.ip}:${endpoint.port}. Check the PC IP, keep both devices on the same Wi-Fi, and allow PulseDrop through Windows Firewall on Private networks.`;
+  return `Could not reach ${endpoint.ip}:${endpoint.port}. Keep the receiver open, check its address, and connect both devices to the same local network. If it stays unavailable, check its firewall or VPN settings.`;
 }
 
 async function checkReceiver(endpoint) {
@@ -754,15 +896,55 @@ async function sendFile(file, endpoint, activityId, progressContext = {}) {
   });
 }
 
+function renderSendErrors(focus = false) {
+  const errors = Object.entries(state.validationErrors);
+  for (const id of ["peer-ip", "peer-port", "peer-code"]) {
+    const input = document.getElementById(id);
+    const error = document.getElementById(`${id}-error`);
+    const message = state.validationErrors[id];
+    input.setAttribute("aria-invalid", String(Boolean(message)));
+    error.hidden = !message;
+    error.textContent = message || "";
+  }
+  els.sendError.replaceChildren();
+  els.sendError.hidden = errors.length === 0 && !state.sendError;
+  if (els.sendError.hidden) return;
+  const title = document.createElement("strong");
+  title.textContent = state.sendError || "A few details before we send";
+  els.sendError.append(title);
+  if (errors.length) {
+    const list = document.createElement("ul");
+    for (const [id, message] of errors) {
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `#${id}`;
+      link.textContent = message;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (id !== "peer-code") els.manualConnection.open = true;
+        document.getElementById(id).focus();
+      });
+      item.append(link);
+      list.append(item);
+    }
+    els.sendError.append(list);
+  }
+  if (state.validationErrors["peer-ip"] || state.validationErrors["peer-port"]) els.manualConnection.open = true;
+  if (focus) els.sendError.focus();
+}
+
 async function sendSelectedFiles() {
+  if (state.sending) return;
   const endpoint = {
     ip: els.peerIp.value.trim(),
     port: Number(els.peerPort.value.trim()),
     code: els.peerCode.value.trim()
   };
 
-  if (!endpoint.ip || !endpoint.port || !endpoint.code) {
-    showToast("Enter peer IP, port, and code");
+  state.validationErrors = validateReceiver(endpoint);
+  state.sendError = "";
+  renderSendErrors(true);
+  if (Object.keys(state.validationErrors).length) {
     return;
   }
 
@@ -777,7 +959,8 @@ async function sendSelectedFiles() {
   let sent = 0;
   let failed = 0;
 
-  setBusy(els.sendFiles, true);
+  state.sending = true;
+  syncSendControls();
   updateTransferMonitor({
     name: "Checking receiver",
     totalLoaded: 0,
@@ -801,7 +984,10 @@ async function sendSelectedFiles() {
       active: false
     });
     showToast(String(error.message || error));
-    setBusy(els.sendFiles, false);
+    state.sending = false;
+    syncSendControls();
+    state.sendError = String(error.message || error);
+    renderSendErrors(true);
     return;
   }
 
@@ -809,6 +995,7 @@ async function sendSelectedFiles() {
     const activityId = createId();
     addActivity({
       id: activityId,
+      file,
       name: file.name,
       label: "Sending",
       kind: "sending",
@@ -840,6 +1027,7 @@ async function sendSelectedFiles() {
       });
     } catch (error) {
       failed += 1;
+      state.sendError = String(error.message || error);
       updateActivity(activityId, {
         label: String(error.message || error),
         kind: "failed",
@@ -849,7 +1037,9 @@ async function sendSelectedFiles() {
     }
   }
 
-  setBusy(els.sendFiles, false);
+  state.sending = false;
+  syncSendControls();
+  renderSendErrors(Boolean(failed));
   if (sent > 0) {
     const complete = failed === 0;
     updateTransferMonitor({
@@ -875,12 +1065,28 @@ async function sendSelectedFiles() {
   }
 }
 
-function copyText(text, label) {
+async function copyText(text, label) {
   if (!text || text === "--") return;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(String(text));
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(String(text));
+    } else {
+      const previousFocus = document.activeElement;
+      const field = document.createElement("textarea");
+      field.value = String(text);
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.append(field);
+      field.select();
+      const copied = document.execCommand("copy");
+      field.remove();
+      if (previousFocus) previousFocus.focus({ preventScroll: true });
+      if (!copied) throw new Error("Clipboard access is unavailable");
+    }
+    showToast(`${label} copied`);
+  } catch {
+    showToast(`Could not copy ${label.toLowerCase()}. You can select the value and copy it manually.`);
   }
-  showToast(`${label} copied`);
 }
 
 function escapeHtml(value) {
@@ -901,7 +1107,7 @@ function statusLabel(status) {
     case "warn":
       return "Needs fix";
     case "unsupported":
-      return "PC only";
+      return "Not applicable";
     default:
       return "Unknown";
   }
@@ -921,7 +1127,7 @@ function renderDiagnostic(card, statusEl, messageEl, detailEl, fixButton, item) 
 function renderWindowsDiagnostics(diagnostics) {
   const data = diagnostics || {};
   if (els.settingsAppPath) {
-    els.settingsAppPath.textContent = data.app_path || (data.is_windows ? "Installed path unavailable" : "Windows receiver only");
+    els.settingsAppPath.textContent = data.app_path || "Installed path unavailable on this platform";
     els.settingsAppPath.title = els.settingsAppPath.textContent;
   }
   renderDiagnostic(els.networkCard, els.networkStatus, els.networkMessage, els.networkDetail, els.fixNetwork, data.network);
@@ -1021,16 +1227,18 @@ async function runWindowsFix(command, button) {
   }
 }
 function bindEvents() {
-  [els.homeSend, els.homeReceive].forEach((button) => {
-    if (!button) return;
-    bindModeButtonGlow(button);
-    button.addEventListener("click", () => setView(button.dataset.mode));
+  document.querySelector(".skip-link").addEventListener("click", (event) => {
+    event.preventDefault();
+    els.mainContent.focus({ preventScroll: true });
   });
-  if (els.homeSettings) {
-    els.homeSettings.addEventListener("click", () => setView("settings"));
-  }
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      setView(button.dataset.mode);
+    });
+  });
   els.backHome.addEventListener("click", () => {
-    if (state.activeView !== "home" && window.history.state && window.history.state.view === state.activeView) {
+    if (state.activeView !== "home" && window.history.state && window.history.state.depth > 0) {
       window.history.back();
       return;
     }
@@ -1041,8 +1249,16 @@ function bindEvents() {
     const nextView = event.state && event.state.view ? event.state.view : viewFromLocation();
     setView(nextView, { updateHistory: false });
   });
+  window.addEventListener("hashchange", () => {
+    if (!/^#(home|send|receive|settings)$/.test(window.location.hash)) return;
+    const view = viewFromLocation();
+    if (state.activeView !== view) setView(view, { updateHistory: false });
+  });
 
-  els.fileInput.addEventListener("change", (event) => addFiles(event.target.files));
+  els.fileInput.addEventListener("change", (event) => {
+    addFiles(event.target.files);
+    els.fileInput.value = "";
+  });
   els.clearFiles.addEventListener("click", () => {
     state.files = [];
     els.fileInput.value = "";
@@ -1058,6 +1274,17 @@ function bindEvents() {
       renderDiscoveredReceivers();
     });
   }
+  for (const input of [els.peerIp, els.peerPort, els.peerCode]) {
+    input.addEventListener("input", () => {
+      delete state.validationErrors[input.id];
+      state.sendError = "";
+      renderSendErrors();
+    });
+  }
+  els.reduceMotion.addEventListener("change", () => {
+    document.documentElement.classList.toggle("reduce-motion", els.reduceMotion.checked);
+    try { localStorage.setItem("pulsedrop.reduceMotion", String(els.reduceMotion.checked)); } catch { /* Unavailable storage must not block preferences. */ }
+  });
   document.addEventListener("visibilitychange", updateDiscoveryActivity);
   window.addEventListener("pagehide", () => receiverDiscovery.stop());
   els.toggleReceiver.addEventListener("click", toggleReceiver);
@@ -1089,20 +1316,23 @@ function bindEvents() {
 async function bindTauriEvents() {
   if (!listen) return;
 
+  await listen("file-receive-progress", (event) => handleReceiveProgress(event.payload));
   await listen("file-received", (event) => {
     const payload = event.payload;
-    state.inboxCount += 1;
-    addActivity({
-      name: payload.name,
-      label: `Received ${formatBytes(payload.size)}`,
-      kind: "received",
-      progress: 100
+    handleReceiveProgress({
+      ...payload,
+      transfer_id: payload.transfer_id || createId(),
+      phase: "completed",
+      received: payload.size
     });
   });
 }
 
 bindEvents();
-setView("home", { replaceHistory: true });
+document.querySelectorAll("[data-app-version]").forEach((element) => { element.textContent = `v${version}`; });
+try { els.reduceMotion.checked = localStorage.getItem("pulsedrop.reduceMotion") === "true"; } catch { /* Use the system motion preference when storage is unavailable. */ }
+document.documentElement.classList.toggle("reduce-motion", els.reduceMotion.checked);
+setView(viewFromLocation(), { replaceHistory: true, focus: false });
 renderFiles();
 renderReceiver();
 renderActivities();
