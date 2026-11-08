@@ -1,11 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.pulse_drop" parent="Theme.MaterialComponents.Light.NoActionBar">
-        <item name="android:windowBackground">#f5f7fb</item>
-        <item name="android:colorAccent">#0f8b8d</item>
+        <item name="android:windowBackground">@color/pulsedrop_background</item>
+        <item name="android:colorAccent">@color/pulsedrop_accent</item>
         <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
-        <item name="android:navigationBarColor">#f5f7fb</item>
-        <item name="android:statusBarColor">#f5f7fb</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
-        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+        <item name="android:navigationBarColor">@color/pulsedrop_background</item>
+        <item name="android:statusBarColor">@color/pulsedrop_background</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>
 </resources>
