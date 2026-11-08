@@ -36,16 +36,7 @@ jobs:
       - name: Require the release changelog
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          python3 - <<'PY'
-          import os, re
-          from pathlib import Path
-          version = os.environ['RELEASE_VERSION']
-          changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
-          section = re.search(r'^## ' + re.escape(version) + r'\s*\n(.*?)(?=^## |\Z)', changelog, re.M | re.S)
-          if not section or not section.group(1).strip():
-              raise SystemExit('Add a non-empty ## ' + version + ' entry to CHANGELOG.md before tagging.')
-          PY
+        run: node scripts/release-notes.mjs "$RELEASE_VERSION" > /dev/null
       - run: npm test
       - run: npm run frontend:build
 
@@ -210,6 +201,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - name: Prepare version release notes
+        env:
+          RELEASE_VERSION: ${{ needs.checks.outputs.version }}
+        run: node scripts/release-notes.mjs "$RELEASE_VERSION" > "$RUNNER_TEMP/release-notes.md"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: release-*
@@ -243,8 +241,8 @@ jobs:
           fi
           if [[ "$state" != "true" ]]; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
-              --title "PulseDrop $GITHUB_REF_NAME" --notes-file CHANGELOG.md
+              --title "PulseDrop $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
-          gh release edit "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
+          gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
           gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest
