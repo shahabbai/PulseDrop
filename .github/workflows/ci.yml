@@ -106,7 +106,8 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist"
           binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/$binary"
+          # -verify_arch consumes the following arguments as architecture names.
+          lipo "$app/Contents/MacOS/$binary" -verify_arch arm64 x86_64
           codesign --verify --deep --strict --verbose=2 "$app"
           hdiutil verify src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
