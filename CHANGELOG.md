@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- Add **Cancel transfer** on Send to stop the active file and remaining queue, including receiver checking and Android file preparation.
+- Add **Cancel file** and **Cancel all incoming** on Receive while keeping the receiver available for new transfers.
+- Show a distinct **Cancelled** state on both updated devices without counting incomplete files as received.
+
+### Fixed
+
+- Remove cancelled uploads' partial files and reserved destination names; preserve files that completed before cancellation.
+- Wake stalled incoming uploads immediately when cancellation is requested and handle cancellation racing with upload completion or connection errors.
+- Preserve keyboard focus on incoming Cancel buttons while progress updates.
+- Settle HTTP upload errors correctly so sending controls become available for retry.
+
+### Releases
+
+- Update the application version to **0.3.1** across all manifests and lockfiles.
+- Publish only the tagged version's changelog entry on its GitHub Release page. Older entries remain in this file.
+- Continue building the Android APK, Linux DEB, Windows EXE, and universal macOS DMG.
+
+Update both devices to 0.3.1 for coordinated cancellation and consistent status on both screens. Older receivers still accept uploads; sender cancellation falls back to closing the upload connection. Completed files are kept, and a new send starts a fresh attempt.
+
+[Compare changes from v0.3.0 to v0.3.1](https://github.com/shahabbai/PulseDrop/compare/v0.3.0...v0.3.1)
+
 ## 0.3.0
 
 ### Interface

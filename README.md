@@ -8,7 +8,7 @@ PulseDrop is a Windows and Android-first local network file transfer app built w
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.3.0**. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with the full [changelog](CHANGELOG.md).
+The next release is **0.3.1**. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with that version's [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -17,6 +17,7 @@ The next release is **0.3.0**. See [automatic GitHub releases](docs/github-relea
 - Automatically discover active receivers on the LAN and select one to fill its IP and port.
 - Save received files into an app Inbox folder.
 - Follow live byte progress and speed on both the sending and receiving devices, with per-file transfer activity.
+- Cancel from either device, stop the remaining sender queue, and remove incomplete files while preserving completed transfers. See [transfer cancellation](docs/transfer-cancellation.md).
 - Open the Inbox from the app.
 - Local HTTP health check before sending, so bad IP/firewall/VPN problems fail clearly.
 - LAN IP detection that prefers Wi-Fi/Ethernet addresses over VPN and tunnel interfaces.
@@ -291,7 +292,6 @@ PulseDrop tries to prefer Wi-Fi/Ethernet over VPN interfaces. If a VPN address s
 
 - Android App Bundle / Play Store distribution.
 - QR code pairing.
-- Transfer cancellation.
 - Signed and notarized macOS releases.
 - iOS build.
 - Optional installer step for Windows firewall rule with user/admin consent.
