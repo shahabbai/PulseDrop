@@ -133,9 +133,21 @@ pub(crate) fn upload(
     name: &str,
     size: u64,
     prefix: &[u8],
-    mut notify: impl FnMut(Progress),
+    notify: impl FnMut(Progress),
 ) -> Result<SavedUpload, String> {
-    let started = Instant::now();
+    upload_with_clock(source, inbox, name, size, prefix, notify, Instant::now)
+}
+
+fn upload_with_clock(
+    source: &mut impl Read,
+    inbox: &Path,
+    name: &str,
+    size: u64,
+    prefix: &[u8],
+    mut notify: impl FnMut(Progress),
+    mut clock: impl FnMut() -> Instant,
+) -> Result<SavedUpload, String> {
+    let started = clock();
     let mut last_update = started;
     let mut progress = Progress {
         transfer_id: super::discovery::instance_id(),
@@ -151,7 +163,7 @@ pub(crate) fn upload(
         let (pending, mut file) = PendingUpload::create(inbox, name, &progress.transfer_id)?;
         let copied = copy_body(source, &mut file, prefix, size, |received| {
             progress.received = received;
-            let now = Instant::now();
+            let now = clock();
             progress.speed = received as f64 / now.duration_since(started).as_secs_f64().max(0.001);
             if now.duration_since(last_update) >= PROGRESS_INTERVAL {
                 notify(progress.clone());
@@ -186,7 +198,7 @@ pub(crate) fn upload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use std::{cell::Cell, io::Cursor};
 
     struct TestInbox(PathBuf);
     impl TestInbox {
@@ -320,42 +332,81 @@ mod tests {
 
     #[test]
     fn slow_upload_emits_live_progress_and_stages_bytes_outside_the_finished_inbox() {
-        struct SlowSource(u64);
-        impl Read for SlowSource {
+        struct TimedSource<'a> {
+            delays: std::vec::IntoIter<u64>,
+            elapsed: &'a Cell<Duration>,
+        }
+        impl Read for TimedSource<'_> {
             fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-                if self.0 == 0 {
+                let Some(delay) = self.delays.next() else {
                     return Ok(0);
-                }
-                std::thread::sleep(Duration::from_millis(20));
+                };
+                self.elapsed
+                    .set(self.elapsed.get() + Duration::from_millis(delay));
                 buffer[0] = 7;
-                self.0 -= 1;
                 Ok(1)
             }
         }
-        let inbox = TestInbox::new();
-        let mut events = Vec::new();
-        upload(
-            &mut SlowSource(18),
-            &inbox.0,
-            "slow.bin",
-            18,
-            b"",
-            |event| {
-                if event.phase == Phase::Receiving && event.received > 0 {
-                    assert_eq!(fs::metadata(inbox.0.join("slow.bin")).unwrap().len(), 0);
-                }
-                events.push(event);
-            },
-        )
-        .unwrap();
-        assert!(events.iter().any(|event| event.phase == Phase::Receiving
-            && event.received > 0
-            && event.received < 18));
-        assert!(
-            events.len() < 10,
-            "progress should be throttled, not emitted for every read"
-        );
-        assert_eq!(fs::read(inbox.0.join("slow.bin")).unwrap(), vec![7; 18]);
+        // Thread sleeps can overshoot on busy CI runners. Control elapsed time
+        // rather than assuming a fixed number of events for 18 real reads.
+        for (delays, expected_counts) in [
+            (vec![20; 18], vec![0, 6, 12, 18]),
+            // Every read may legitimately emit when reads take >= 120 ms.
+            (vec![120; 18], (0..=18).collect()),
+            // A long pause emits once; completion bypasses the throttle.
+            (
+                vec![
+                    20, 20, 20, 20, 20, 20, 120, 20, 20, 20, 20, 20, 300, 20, 20, 20, 20, 20,
+                ],
+                vec![0, 6, 7, 13],
+            ),
+        ] {
+            let inbox = TestInbox::new();
+            let started = Instant::now();
+            let elapsed = Cell::new(Duration::ZERO);
+            let mut source = TimedSource {
+                delays: delays.into_iter(),
+                elapsed: &elapsed,
+            };
+            let mut events = Vec::new();
+            let mut emitted_at = Vec::new();
+            upload_with_clock(
+                &mut source,
+                &inbox.0,
+                "slow.bin",
+                18,
+                b"",
+                |event| {
+                    if event.phase == Phase::Receiving && event.received > 0 {
+                        assert_eq!(fs::metadata(inbox.0.join("slow.bin")).unwrap().len(), 0);
+                        let staged = inbox
+                            .0
+                            .join(".pulsedrop-transfers")
+                            .join(format!("{}.part", event.transfer_id));
+                        assert_eq!(fs::metadata(staged).unwrap().len(), event.received);
+                        assert!(event.speed > 0.0);
+                    }
+                    if event.phase == Phase::Receiving {
+                        emitted_at.push(elapsed.get());
+                    }
+                    events.push(event);
+                },
+                || started + elapsed.get(),
+            )
+            .unwrap();
+            let received_counts: Vec<_> = events
+                .iter()
+                .filter(|event| event.phase == Phase::Receiving)
+                .map(|event| event.received)
+                .collect();
+            assert_eq!(received_counts, expected_counts);
+            assert!(emitted_at
+                .windows(2)
+                .all(|pair| pair[1] - pair[0] >= PROGRESS_INTERVAL));
+            assert_eq!(events.last().unwrap().phase, Phase::Completed);
+            assert_eq!(events.last().unwrap().received, 18);
+            assert_eq!(fs::read(inbox.0.join("slow.bin")).unwrap(), vec![7; 18]);
+        }
     }
 
     #[test]
