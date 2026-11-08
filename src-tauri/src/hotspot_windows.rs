@@ -164,7 +164,7 @@ mod native {
         time::{Duration, Instant},
     };
     use windows::{
-        core::HSTRING,
+        core::{AgileReference, HSTRING},
         Networking::{Connectivity::NetworkInformation, NetworkOperators::*},
         Win32::{
             Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG},
@@ -172,8 +172,8 @@ mod native {
         },
     };
     const SETTINGS: &str = "Windows hotspot control is unavailable. Open Mobile hotspot settings and select 5 GHz, or use an Android/Linux receiver. Windows may require an internet-connected sharing profile and Wi-Fi control permission.";
-    // Every Tauri blocking worker initializes its own WinRT apartment. Managers
-    // and configurations are agile WinRT objects, safe to retain between calls.
+    // Every Tauri worker initializes its own WinRT apartment. The manager is
+    // not Send; retain an AgileReference and resolve a local proxy per call.
     pub(super) struct Runtime(bool);
     impl Runtime {
         pub(super) fn enter() -> Result<Self, String> {
@@ -230,7 +230,7 @@ mod native {
             .collect()
     }
     pub(super) struct Windows(
-        NetworkOperatorTetheringManager,
+        AgileReference<NetworkOperatorTetheringManager>,
         Mutex<Option<Pending>>,
         Vec<std::net::Ipv4Addr>,
     );
@@ -249,7 +249,14 @@ mod native {
                 os(NetworkOperatorTetheringManager::CreateFromConnectionProfile(&profile))?;
             // The band API needs Windows 10 2004+. Older systems keep guided setup.
             os(os(manager.GetCurrentAccessPointConfiguration())?.Band())?;
-            Ok(Self(manager, Mutex::new(None), addresses()))
+            Ok(Self(
+                os(AgileReference::new(&manager))?,
+                Mutex::new(None),
+                addresses(),
+            ))
+        }
+        fn manager(&self) -> Result<NetworkOperatorTetheringManager, String> {
+            os(self.0.resolve())
         }
     }
     impl Driver for Windows {
@@ -267,14 +274,14 @@ mod native {
                 }
                 *pending = None;
             }
-            Ok(match os(self.0.TetheringOperationalState())? {
+            Ok(match os(self.manager()?.TetheringOperationalState())? {
                 TetheringOperationalState::Off => State::Off,
                 TetheringOperationalState::On => State::On,
                 _ => State::Busy,
             })
         }
         fn configuration(&self) -> Result<Configuration, String> {
-            let config = os(self.0.GetCurrentAccessPointConfiguration())?;
+            let config = os(self.manager()?.GetCurrentAccessPointConfiguration())?;
             Ok(Configuration {
                 ssid: os(config.Ssid())?.to_string(),
                 password: os(config.Passphrase())?.to_string(),
@@ -292,7 +299,7 @@ mod native {
                 os(config
                     .SetAuthenticationKind(TetheringWiFiAuthenticationKind(value.authentication)))?;
             }
-            let action = os(self.0.ConfigureAccessPointAsync(&config))?;
+            let action = os(self.manager()?.ConfigureAccessPointAsync(&config))?;
             let watched = action.clone();
             wait(
                 &self.1,
@@ -317,7 +324,7 @@ mod native {
             os(operation.GetResults())
         }
         fn start(&self) -> Result<Started, String> {
-            let operation = os(self.0.StartTetheringAsync())?;
+            let operation = os(self.manager()?.StartTetheringAsync())?;
             let watched = operation.clone();
             wait(
                 &self.1,
@@ -334,7 +341,7 @@ mod native {
             }
         }
         fn stop(&self) -> Result<(), String> {
-            let operation = os(self.0.StopTetheringAsync())?;
+            let operation = os(self.manager()?.StopTetheringAsync())?;
             let watched = operation.clone();
             wait(
                 &self.1,

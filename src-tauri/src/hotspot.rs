@@ -53,6 +53,13 @@ pub(crate) struct HotspotState {
     client: Mutex<Option<desktop::Active>>,
 }
 
+// Tauri shares managed state between async/blocking workers. Keep this checked
+// even when the native adapter is compiled without the rest of the Tauri app.
+const _: fn() = || {
+    fn managed_state<T: Send + Sync + 'static>() {}
+    managed_state::<HotspotState>();
+};
+
 impl HotspotState {
     pub fn current(&self) -> Result<Option<Session>, String> {
         #[cfg(target_os = "windows")]
