@@ -2,6 +2,18 @@
 
 For transfers without a router or internet, use the [receiver hotspot setup and physical test checklist](hotspot-transfer.md). Local-network testing below remains applicable.
 
+## 0.5.0 adaptive hotspot testing
+
+Use fresh 0.5.0 installers from CI or the release. Android's version code is `5000`. Ubuntu 5 GHz throughput was confirmed by the user; test the new Windows/macOS behavior on real devices before publishing.
+
+1. **Linux host:** create a hotspot in Receive and check the reported band/channel/width. Connect Android through QR, transfer the same large file in both directions and compare its SHA-256 hash. Stop and confirm the previous Wi-Fi returns. Test a 2.4 GHz-only adapter or a host setup that rejects 5 GHz to exercise compatibility fallback. A 2.4 GHz-only client cannot trigger fallback after a 5 GHz host has successfully started.
+2. **Windows host:** with Wi-Fi enabled and a suitable sharing connection, open Receive → Hotspot. If native Create is available, check the configured 5 GHz status, join from Android, transfer both directions, then Stop and check that your original system hotspot settings return. Repeat with unsupported 5 GHz, denied access, missing uplink and rejected setup. After a setup error, **Clean up setup** must remain available. An existing system hotspot and a newer manual settings change must be preserved. If Windows declines API access, use Mobile hotspot Settings, choose its 5 GHz band if available and share by QR.
+3. **macOS sender:** create a 5 GHz hotspot on Android, Linux or supported Windows. On the Mac, allow Location, select it in Send → Hotspot or scan/import its QR and Connect. Check the actual band/channel message, send a large file and verify its hash. Disconnect and check the previous network. macOS does not create a hotspot automatically in this release. For the reverse direction, join the same network first and open Receive on the Mac.
+4. **All desktops:** deny Location or camera permission, use a wrong password, stop setup, change networks manually and retry. Ensure no stale credentials or fake 5 GHz success remains. Missing radio metadata must not block a successful connection.
+5. **Regression:** repeat normal LAN discovery/transfers, progress and cancellation from either device, Light/Dark themes, narrow windows and QR joining on Android. The transfer protocol is unchanged.
+
+See [platform support and detailed hotspot behavior](hotspot-transfer.md). Windows/macOS hosted builds and policy tests do not replace these physical checks.
+
 ## 0.4.1 theme testing
 
 Use a fresh 0.4.1 installer. Local builds produce `src-tauri/target/release/bundle/deb/PulseDrop_0.4.1_amd64.deb` and `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` (Android version `0.4.1`, code `4001`). The debug APK uses the development signing identity; GitHub Release signs its APK with the existing release key.

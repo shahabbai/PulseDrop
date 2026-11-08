@@ -8,14 +8,14 @@ PulseDrop is a Windows and Android-first local file transfer app built with Taur
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.4.1**, adding a saved Light/Dark theme choice in Settings. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with that version's [changelog](CHANGELOG.md).
+The next release is **0.5.0**, preferring 5 GHz hotspots on Linux and supported Windows systems, with a 2.4 GHz setup fallback and desktop connection-band details. macOS joins hotspots created by another device. See [automatic GitHub releases](docs/github-releases.md) for manual commit commands and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with only that version's [changelog](CHANGELOG.md).
 
 ## Features
 
 - Send one or more files from PC to phone or phone to PC.
 - Start a receiver on any device and share its IP, port, and 6-digit pairing code.
 - Automatically discover active receivers on the LAN and select one to fill its IP and port.
-- Transfer without a router or internet using **Hotspot**: create a local-only hotspot on Android 8+ or a supported Linux receiver, then join it on the sender. Windows/macOS hosting uses system setup with OS restrictions. See [hotspot transfers and platform support](docs/hotspot-transfer.md).
+- Transfer without a router or internet using **Hotspot**: create a local-only hotspot on Android 8+ or a supported Linux receiver, then join it on the sender. Supported Windows systems can create an adaptive 5 GHz/2.4 GHz Mobile hotspot; Windows may require a sharing uplink and Wi-Fi control permission. macOS supports joining another device’s hotspot. See [hotspot transfers and platform support](docs/hotspot-transfer.md).
 - On Android 10+, Linux, Windows and macOS, find nearby Wi-Fi inside PulseDrop or scan the other device’s QR, then choose **Connect**. The QR fills the Wi-Fi password and receiver details without typing them. You can also share a system-created WPA2 hotspot by QR.
 - Save received files into an app Inbox folder.
 - Follow live byte progress and speed on both the sending and receiving devices, with per-file transfer activity.

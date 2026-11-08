@@ -1,4 +1,4 @@
-use super::{profile_xml, validate, Active, Session, WifiNetwork};
+use super::{frequency_description, profile_xml, validate, Active, Session, WifiNetwork};
 use std::{
     ffi::c_void,
     ptr, thread,
@@ -103,6 +103,45 @@ pub(crate) fn available() -> bool {
     client()
         .and_then(|client| interfaces(&client))
         .is_ok_and(|list| !list.is_empty())
+}
+
+fn network_info(
+    client: &Client,
+    guid: &GUID,
+    connection: &WLAN_CONNECTION_ATTRIBUTES,
+) -> Option<String> {
+    let mut raw = ptr::null_mut();
+    let code = unsafe {
+        WlanGetNetworkBssList(
+            client.0,
+            guid,
+            Some(&connection.wlanAssociationAttributes.dot11Ssid),
+            dot11_BSS_type_infrastructure,
+            connection.wlanSecurityAttributes.bSecurityEnabled.as_bool(),
+            None,
+            &mut raw,
+        )
+    };
+    if code != 0 || raw.is_null() {
+        return None;
+    }
+    let _allocation = Allocation(raw.cast());
+    let count = unsafe { (*raw).dwNumberOfItems } as usize;
+    let size = unsafe { (*raw).dwTotalSize } as usize;
+    let offset = std::mem::offset_of!(WLAN_BSS_LIST, wlanBssEntries);
+    if count > 65536
+        || size < offset
+        || count > (size - offset) / std::mem::size_of::<WLAN_BSS_ENTRY>()
+    {
+        return None;
+    }
+    let entries: &[WLAN_BSS_ENTRY] =
+        unsafe { std::slice::from_raw_parts(ptr::addr_of!((*raw).wlanBssEntries).cast(), count) };
+    let bssid = connection.wlanAssociationAttributes.dot11Bssid;
+    entries
+        .iter()
+        .find(|entry| entry.dot11Bssid == bssid)
+        .and_then(|entry| frequency_description(entry.ulChCenterFrequency))
 }
 
 fn networks(client: &Client, interface: &WLAN_INTERFACE_INFO) -> Result<Vec<WifiNetwork>, String> {
@@ -232,6 +271,7 @@ pub(crate) fn join(
                 {
                     return Ok(Active {
                         session: Session {
+                            network_info: network_info(&client, &selected.InterfaceGuid, &info),
                             role: "sender",
                             ssid: name.into(),
                             password: String::new(),

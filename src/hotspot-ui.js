@@ -36,24 +36,30 @@ export function mountHotspot({ invoke, bridge, ensureReceiver, refreshNetwork, c
     const host = current.session?.role === "host";
     const sender = current.session?.role === "sender";
     const busy = current.busy || externalSharing;
+    const recoverWindowsHost = capabilities?.platform === "windows" && current.error && !current.session && receiveMode === "hotspot";
     el("hotspot-send").hidden = sendMode !== "hotspot";
     el("hotspot-send-description").textContent = capabilities?.can_join
       ? "Create a hotspot on the other device, then scan its QR or choose its Wi-Fi below."
       : "Join the receiver’s hotspot in Wi-Fi settings, then find it below.";
     el("hotspot-receive").hidden = receiveMode !== "hotspot";
-    el("hotspot-create").disabled = !capabilities?.can_host || busy || Boolean(current.session) || !canChange();
+    el("hotspot-create").disabled = !capabilities?.can_host || busy || Boolean(current.session) || Boolean(recoverWindowsHost) || !canChange();
     el("hotspot-create").hidden = host || (busy && current.operation === "start");
-    el("hotspot-stop").hidden = !host && !(busy && current.operation === "start");
+    el("hotspot-stop").hidden = !host && !(busy && current.operation === "start") && !recoverWindowsHost;
     el("hotspot-stop").disabled = (busy && current.operation === "stop") || !canChange();
-    el("hotspot-stop").textContent = busy ? (current.operation === "stop" ? "Stopping…" : "Cancel setup") : current.session?.external ? "Hide connection QR" : "Stop hotspot";
+    el("hotspot-stop").textContent = busy ? (current.operation === "stop" ? "Stopping…" : "Cancel setup") : current.session?.external ? "Hide connection QR" : recoverWindowsHost ? "Clean up setup" : "Stop hotspot";
     el("hotspot-credentials").hidden = !host;
     el("hotspot-credentials-details").hidden = !host;
-    if (capabilities?.message) el("hotspot-capability").textContent = host ? "On the other device, open Send → Hotspot → Scan QR. No password to type." : capabilities.message;
+    if (capabilities?.message) el("hotspot-capability").textContent = host ? current.session.network_info || "On the other device, open Send → Hotspot → Scan QR. No password to type." : capabilities.message;
     el("hotspot-network-name").textContent = host ? current.session.ssid : "";
     el("hotspot-network-password").textContent = host ? current.session.password : "";
     el("hotspot-qr").hidden = !host;
     if (host) {
-      const key = encodeHotspotQr({ ...current.session, receiver: connectionInfo() });
+      const receiver = connectionInfo();
+      // A Windows sharing uplink is not necessarily reachable from its private
+      // hotspot. Omit pairing until the new hotspot address is known.
+      const qrReceiver = capabilities?.platform === "windows" && !current.session.external
+        ? current.session.address && receiver ? { ...receiver, ip: current.session.address } : null : receiver;
+      const key = encodeHotspotQr({ ...current.session, receiver: qrReceiver });
       if (key !== qrKey) {
         qrKey = key;
         el("hotspot-qr-hint").textContent = "On the other device, open Send → Hotspot → Scan QR. No password typing.";
@@ -86,9 +92,9 @@ export function mountHotspot({ invoke, bridge, ensureReceiver, refreshNetwork, c
     } else if (busy) {
       status(current.operation === "stop" ? "Releasing the hotspot connection…" : "Complete any Wi-Fi permission or connection request on this device.", receiveMode === "hotspot", false);
     } else if (host) {
-      status(current.session.external ? "Connection QR ready. Keep the system hotspot enabled. Hiding this QR does not turn it off." : "Hotspot ready. Scan its QR on the other device, then choose Connect. No internet is required.", true, false);
+      status(current.session.external ? "Connection QR ready. Keep the system hotspot enabled. Hiding this QR does not turn it off." : `${current.session.network_info ? current.session.network_info + " " : ""}Hotspot ready. Scan its QR on the other device, then choose Connect.${capabilities?.platform === "windows" ? " Keep Windows’ sharing connection active." : " No internet is required."}`, true, false);
     } else if (sender) {
-      status(`Connected to ${current.session.ssid}. ${current.session.paired ? "Receiver details filled. Add files and send." : "Find the receiver below and enter its pairing code."}`, false, false);
+      status(`Connected to ${current.session.ssid}. ${current.session.network_info ? current.session.network_info + " " : ""}${current.session.paired ? "Receiver details filled. Add files and send." : "Find the receiver below and enter its pairing code."}`, false, false);
     }
     if (!canChange() && !current.error) status("Finish or cancel active transfers before changing Wi-Fi.", receiveMode === "hotspot", false);
   }
@@ -99,7 +105,7 @@ export function mountHotspot({ invoke, bridge, ensureReceiver, refreshNetwork, c
       capabilities = native ? { ...JSON.parse(bridge.hotspotStatus()), platform: "android", message: "A local-only hotspot needs Android 8 or later and Wi-Fi hardware support. It may replace your current Wi-Fi connection. No router, SIM or mobile data is needed." }
         : invoke ? await invoke("hotspot_capabilities") : { can_host: false, message: "Open PulseDrop to set up a hotspot. Browser preview cannot change Wi-Fi." };
       el("hotspot-capability").textContent = capabilities.message;
-      if (["windows", "macos", "ios"].includes(capabilities.platform)) {
+      if ((capabilities.platform === "windows" && !capabilities.can_host) || capabilities.platform === "ios") {
         el("hotspot-capability").textContent += capabilities.platform === "ios"
           ? " iPhone Personal Hotspot requires system setup and may require a cellular plan; use an Android/Linux receiver for offline hosting."
           : " For reliable hosting without internet, use an Android or supported Linux receiver. You can join that hotspot from this device.";
@@ -129,7 +135,8 @@ export function mountHotspot({ invoke, bridge, ensureReceiver, refreshNetwork, c
   }));
   el("hotspot-stop").addEventListener("click", safe(async () => {
     const external = controller.snapshot().session?.external;
-    await controller.stop(); await refreshNetwork(); status(external ? "Connection QR hidden. Your system hotspot is still under your control in Settings." : "Hotspot stopped. You can keep receiving on your local network.", true, false);
+    const cleanup = capabilities?.platform === "windows" && !controller.snapshot().session;
+    await controller.stop(); await refreshNetwork(); status(external ? "Connection QR hidden. Your system hotspot is still under your control in Settings." : cleanup ? "Setup cleared. Any system-created hotspot stays under your control in Windows Settings." : "Hotspot stopped. You can keep receiving on your local network.", true, false);
   }));
   el("hotspot-external-form").addEventListener("submit", safe(async () => {
     if (externalSharing || controller.snapshot().session || controller.snapshot().busy) return;

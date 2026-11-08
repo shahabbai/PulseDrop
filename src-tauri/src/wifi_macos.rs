@@ -42,6 +42,10 @@ pub(crate) fn join(
     )?;
     Ok(Active {
         session: Session {
+            network_info: value["network_info"]
+                .as_str()
+                .filter(|info| !info.is_empty())
+                .map(String::from),
             role: "sender",
             ssid: ssid.into(),
             password: String::new(),

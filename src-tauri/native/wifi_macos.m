@@ -50,6 +50,22 @@ static CWInterface *findInterface(NSString *name) {
     CWWiFiClient *client = [CWWiFiClient sharedWiFiClient];
     return name.length ? [client interfaceWithName:name] : [client interface];
 }
+static NSString *radioDescription(CWInterface *adapter) {
+    CWChannel *channel = adapter.wlanChannel;
+    NSString *band = channel.channelBand == kCWChannelBand5GHz ? @"5 GHz" :
+        channel.channelBand == kCWChannelBand2GHz ? @"2.4 GHz" : nil;
+    if (!channel || !band) return @"";
+    NSInteger width = 0;
+    switch (channel.channelWidth) {
+        case kCWChannelWidth20MHz: width = 20; break;
+        case kCWChannelWidth40MHz: width = 40; break;
+        case kCWChannelWidth80MHz: width = 80; break;
+        case kCWChannelWidth160MHz: width = 160; break;
+        default: break;
+    }
+    return width ? [NSString stringWithFormat:@"%@ · channel %lu · %ld MHz.", band, (unsigned long)channel.channelNumber, (long)width] :
+        [NSString stringWithFormat:@"%@ · channel %lu.", band, (unsigned long)channel.channelNumber];
+}
 static NSDictionary *perform(NSDictionary *request) {
     NSString *operation = request[@"operation"];
     if ([operation isEqualToString:@"available"]) return @{ @"available": @([CWWiFiClient sharedWiFiClient].interfaces.count > 0) };
@@ -113,7 +129,7 @@ static NSDictionary *perform(NSDictionary *request) {
         }
         if (![adapter.ssid isEqualToString:name] || !adapter.bssid.length || [adapter.bssid caseInsensitiveCompare:selected.bssid] != NSOrderedSame)
             return failure(@"Wi-Fi changed before the connection finished. Keep your chosen network, or retry.");
-        return @{ @"interface": adapter.interfaceName, @"bssid": selected.bssid, @"previous": previous };
+        return @{ @"interface": adapter.interfaceName, @"bssid": selected.bssid, @"previous": previous, @"network_info": radioDescription(adapter) };
     }
     return failure(@"Unknown Wi-Fi action.");
 }

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mountHotspot } from "../src/hotspot-ui.js";
+import jsQR from "jsqr";
+import { decodeHotspotQr } from "../src/hotspot-qr.js";
 
 // Minimal event/element adapter for the Wi-Fi workflow. Native WebView checks
 // separately validate actual rendering, focus, layout and real HTTP transfers.
@@ -15,13 +17,24 @@ class Element {
   querySelectorAll(tag) { return this.children.flatMap((child) => [...(child.tagName === tag.toUpperCase() ? [child] : []), ...child.querySelectorAll(tag)]); }
   querySelector(tag) { return this.querySelectorAll(tag)[0]; }
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter((child) => child !== this); this.parentNode = null; }
-  getContext() { return { fillRect() {} }; }
+  getContext() {
+    const canvas = this;
+    return { fillStyle: "#fff", fillRect(x, y, width, height) {
+      if (!canvas.capturePixels) return;
+      canvas.pixels ||= new Uint8ClampedArray(canvas.width * canvas.height * 4);
+      const color = this.fillStyle === "#000" ? 0 : 255;
+      for (let row = y; row < y + height; row++) for (let col = x; col < x + width; col++) {
+        const at = (row * canvas.width + col) * 4;
+        canvas.pixels[at] = canvas.pixels[at + 1] = canvas.pixels[at + 2] = color; canvas.pixels[at + 3] = 255;
+      }
+    } };
+  }
   click() { return this.fire("click"); }
   focus() { if (!this.disabled) document.activeElement = this; }
   async fire(type) { await this.listeners[type]?.({ preventDefault() {} }); }
 }
 
-async function fixture(run, { startReceiver = async () => {}, android = true, invoke } = {}) {
+async function fixture(run, { startReceiver = async () => {}, android = true, invoke, connectionInfo = () => null } = {}) {
   const priorDocument = globalThis.document, priorInterval = globalThis.setInterval;
   const nodes = new Map([...readFileSync(new URL("../src/index.html", import.meta.url), "utf8").matchAll(/id="([^"]+)"/g)].map((match) => [match[1], new Element(match[1])]));
   const radios = ["send", "receive"].flatMap((side) => ["lan", "hotspot"].map((value) => Object.assign(new Element(side + value), { value, side })));
@@ -48,7 +61,7 @@ async function fixture(run, { startReceiver = async () => {}, android = true, in
   };
   try {
     let mutable = true;
-    const ui = mountHotspot({ bridge: android ? bridge : null, invoke, ensureReceiver: startReceiver, refreshNetwork: async () => { calls.push("refresh"); }, canChange: () => mutable, copy: () => {} });
+    const ui = mountHotspot({ bridge: android ? bridge : null, invoke, connectionInfo, ensureReceiver: startReceiver, refreshNetwork: async () => { calls.push("refresh"); }, canChange: () => mutable, copy: () => {} });
     await run({ nodes, bridge, calls, intervals, ui, radio: (side, value = "hotspot") => radios.find((r) => r.side === side && r.value === value), setStatus: (next) => { status = next; }, lock: () => { mutable = false; ui.refresh(); } });
   } finally { globalThis.document = priorDocument; globalThis.setInterval = priorInterval; }
 }
@@ -107,6 +120,33 @@ test("progress renders do not repeat identical live announcements", async () => 
   assert.equal(status.textWrites, before);
 }));
 
+test("Linux hosting reports actual radio settings and clears them when stopped", async () => {
+  for (const network_info of [
+    "5 GHz · channel 36 · 80 MHz.",
+    "2.4 GHz · channel 6 · 20 MHz. 5 GHz setup was unavailable; compatibility settings were used.",
+    "Configured for 5 GHz; actual channel details unavailable."
+  ]) {
+    await fixture(async ({ nodes, radio, ui }) => {
+      await radio("receive").fire("change");
+      await nodes.get("hotspot-create").fire("click");
+      const message = nodes.get("hotspot-receive-status");
+      assert.ok(message.textContent.startsWith(network_info));
+      assert.equal(nodes.get("hotspot-capability").textContent, network_info);
+      assert.equal(message.dataset.error, "false");
+      const writes = message.textWrites;
+      ui.refresh();
+      assert.equal(message.textWrites, writes);
+      await nodes.get("hotspot-stop").fire("click");
+      assert.ok(!message.textContent.includes(network_info));
+      assert.ok(!nodes.get("hotspot-capability").textContent.includes(network_info));
+    }, { android: false, invoke: async (command) => {
+      if (command === "hotspot_capabilities") return { can_host: true, can_join: true, platform: "linux", message: "Create a temporary hotspot." };
+      if (command === "start_hotspot") return { ssid: "PulseDrop-test", password: "secret123", network_info };
+      return null;
+    } });
+  }
+});
+
 test("Windows fallback explains offline hosting limits and offers manual receiver refresh", async () => {
   let listening = false;
   await fixture(async ({ nodes, radio }) => {
@@ -118,6 +158,87 @@ test("Windows fallback explains offline hosting limits and offers manual receive
     assert.equal(listening, true);
     assert.match(nodes.get("hotspot-receive-status").textContent, /Receiver listening/);
   }, { android: false, invoke: async () => ({ can_host: false, platform: "windows", message: "Use system hotspot settings." }), startReceiver: async () => { listening = true; } });
+});
+
+test("desktop senders display the native connection band and clear it on disconnect", async () => {
+  for (const platform of ["linux", "windows", "macos"]) {
+    await fixture(async ({ nodes, radio, ui }) => {
+      await radio("send").fire("change");
+      nodes.get("hotspot-ssid").value = "PulseDrop-fast";
+      nodes.get("hotspot-password").value = "password123";
+      await nodes.get("hotspot-join-form").fire("submit");
+      assert.match(nodes.get("hotspot-send-status").textContent, /5 GHz · channel 36/);
+      const before = nodes.get("hotspot-send-status").textWrites;
+      ui.refresh(); assert.equal(nodes.get("hotspot-send-status").textWrites, before);
+      await nodes.get("hotspot-leave").fire("click");
+      assert.ok(!nodes.get("hotspot-send-status").textContent.includes("5 GHz"));
+    }, { android: false, invoke: async (command) => {
+      if (command === "hotspot_capabilities") return { platform, can_host: false, can_join: true, message: "Join another receiver." };
+      if (command === "scan_hotspots") return [];
+      if (command === "join_hotspot") return { role: "sender", ssid: "PulseDrop-fast", network_info: "5 GHz · channel 36." };
+    } });
+  }
+});
+
+test("Windows hosting reports configured bands and retains Stop after failed setup", async () => {
+  for (const failure of [false, true]) {
+    let stopped = false;
+    await fixture(async ({ nodes, radio }) => {
+      await radio("receive").fire("change");
+      assert.ok(!nodes.get("hotspot-create").disabled);
+      await nodes.get("hotspot-create").fire("click");
+      assert.equal(nodes.get("hotspot-stop").hidden, false);
+      if (failure) {
+        assert.match(nodes.get("hotspot-receive-status").textContent, /timed out/);
+        assert.equal(nodes.get("hotspot-credentials").hidden, true);
+        assert.equal(nodes.get("hotspot-create").disabled, true);
+      } else {
+        assert.match(nodes.get("hotspot-receive-status").textContent, /Configured for 5 GHz/);
+        assert.match(nodes.get("hotspot-receive-status").textContent, /sharing connection active/);
+        assert.ok(!nodes.get("hotspot-receive-status").textContent.includes("No internet is required"));
+      }
+      await nodes.get("hotspot-stop").fire("click");
+      assert.ok(stopped);
+      assert.equal(nodes.get("hotspot-create").disabled, false);
+    }, { android: false, invoke: async (command) => {
+      if (command === "hotspot_capabilities") return { platform: "windows", can_host: true, can_join: true, message: "Prefers 5 GHz." };
+      if (command === "start_hotspot") {
+        if (failure) throw new Error("Windows hotspot setup timed out. Choose Stop hotspot.");
+        return { ssid: "PulseDrop-fast", password: "password123", network_info: "Configured for 5 GHz. Windows selects the channel and width." };
+      }
+      if (command === "stop_hotspot") stopped = true;
+      return null;
+    } });
+  }
+});
+
+test("macOS offers joining without promising automatic hotspot hosting", async () => fixture(async ({ nodes, radio }) => {
+  await radio("receive").fire("change");
+  assert.equal(nodes.get("hotspot-create").disabled, true);
+  assert.match(nodes.get("hotspot-capability").textContent, /Join a receiver’s 5 GHz hotspot/);
+  await radio("send").fire("change");
+  assert.equal(nodes.get("hotspot-wifi-picker").hidden, false);
+}, { android: false, invoke: async (command) => command === "hotspot_capabilities"
+  ? { platform: "macos", can_host: false, can_join: true, can_scan: true, message: "Join a receiver’s 5 GHz hotspot from Send → Hotspot." } : [] }));
+
+test("Windows host QR never advertises the sharing uplink as the receiver endpoint", async () => {
+  for (const address of [null, "192.168.137.1"]) {
+    await fixture(async ({ nodes, radio }) => {
+      const canvas = nodes.get("hotspot-qr-code"); canvas.capturePixels = true;
+      await radio("receive").fire("change");
+      await nodes.get("hotspot-create").fire("click");
+      for (let attempt = 0; !canvas.pixels && attempt < 100; attempt++) await new Promise((resolve) => setTimeout(resolve, 2));
+      assert.ok(canvas.pixels, "The real QR painter must finish");
+      const decoded = jsQR(canvas.pixels, canvas.width, canvas.height);
+      assert.ok(decoded, "The displayed QR must decode");
+      const credentials = decodeHotspotQr(decoded.data);
+      assert.equal(credentials.ssid, "PulseDrop-fast");
+      assert.equal(credentials.receiver?.ip, address || undefined);
+    }, { android: false, connectionInfo: () => ({ ip: "192.168.1.10", port: 53612, code: "123456" }), invoke: async (command) => {
+      if (command === "hotspot_capabilities") return { platform: "windows", can_host: true, can_join: true };
+      if (command === "start_hotspot") return { ssid: "PulseDrop-fast", password: "password123", address };
+    } });
+  }
 });
 
 test("late status from a previous hotspot cannot clear a replacement session", async () => {

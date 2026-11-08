@@ -3,6 +3,14 @@ use serde::Serialize;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use std::sync::Mutex;
 
+#[cfg(target_os = "linux")]
+#[path = "hotspot_radio.rs"]
+mod radio;
+
+#[cfg(any(target_os = "windows", test))]
+#[path = "hotspot_windows.rs"]
+mod windows_host;
+
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 #[path = "wifi.rs"]
 mod desktop;
@@ -22,6 +30,8 @@ pub(crate) struct Session {
     pub ssid: String,
     pub password: String,
     pub address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_info: Option<String>,
 }
 
 #[derive(Clone, Serialize, serde::Deserialize)]
@@ -35,6 +45,8 @@ pub(crate) struct WifiNetwork {
 
 #[derive(Default)]
 pub(crate) struct HotspotState {
+    #[cfg(target_os = "windows")]
+    host: Mutex<Option<windows_host::Active>>,
     #[cfg(target_os = "linux")]
     active: Mutex<Option<linux::Active>>,
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -43,6 +55,13 @@ pub(crate) struct HotspotState {
 
 impl HotspotState {
     pub fn current(&self) -> Result<Option<Session>, String> {
+        #[cfg(target_os = "windows")]
+        {
+            let mut host = self.host.lock().map_err(|_| "Hotspot state unavailable")?;
+            if host.is_some() {
+                return windows_host::current(&mut host);
+            }
+        }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let mut active = self.client.lock().map_err(|_| "Wi-Fi state unavailable")?;
@@ -76,7 +95,9 @@ impl HotspotState {
         let can_host = linux::adapter(&mut linux::nmcli).is_ok();
         #[cfg(target_os = "linux")]
         let can_join = linux::client_adapter(&mut linux::nmcli).is_ok();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        let can_host = windows_host::available();
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         let can_host = false;
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         let can_join = desktop::available();
@@ -87,7 +108,15 @@ impl HotspotState {
             can_join,
             can_scan: can_join,
             platform: std::env::consts::OS.into(),
-            message: if can_host {
+            message: if cfg!(target_os = "macos") {
+                "Join a receiver’s 5 GHz hotspot from Send → Hotspot. PulseDrop on macOS supports joining hotspots; create the network on an Android, Linux or supported Windows receiver.".into()
+            } else if cfg!(target_os = "windows") {
+                if can_host {
+                    "Prefers 5 GHz with a 2.4 GHz fallback. Windows controls hotspot availability and may require an internet-connected sharing profile. Stop hotspot restores your previous settings.".into()
+                } else {
+                    "Windows hotspot control is unavailable. In Mobile hotspot settings, choose 5 GHz under Properties → Edit if supported, or join an Android/Linux receiver’s hotspot. Windows may require a sharing connection and Wi-Fi control permission.".into()
+                }
+            } else if can_host {
                 "Creates a temporary Wi-Fi network. This may disconnect this device from its current Wi-Fi. No router or internet is needed.".into()
             } else {
                 "Automatic hotspot creation is unavailable here. Use an Android 8+ or supported Linux device as the receiver, or enable a hotspot in system settings if your device supports it.".into()
@@ -137,6 +166,12 @@ impl HotspotState {
         }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
+            #[cfg(target_os = "windows")]
+            let host = self.host.lock().map_err(|_| "Hotspot state unavailable")?;
+            #[cfg(target_os = "windows")]
+            if host.is_some() {
+                return Err("Stop the receiver hotspot before joining another network.".into());
+            }
             let mut active = self.client.lock().map_err(|_| "Wi-Fi state unavailable")?;
             if active.is_some() {
                 return Err("Disconnect the current PulseDrop hotspot first.".into());
@@ -154,6 +189,17 @@ impl HotspotState {
     }
 
     pub fn start(&self) -> Result<Session, String> {
+        #[cfg(target_os = "windows")]
+        {
+            let mut host = self.host.lock().map_err(|_| "Hotspot state unavailable")?;
+            let client = self.client.lock().map_err(|_| "Wi-Fi state unavailable")?;
+            if client.is_some() {
+                return Err(
+                    "Disconnect the joined hotspot before creating a receiver hotspot.".into(),
+                );
+            }
+            windows_host::start(&mut host)
+        }
         #[cfg(target_os = "linux")]
         {
             let mut active = self
@@ -173,11 +219,18 @@ impl HotspotState {
             *active = Some(created);
             Ok(session)
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         Err("Use system hotspot settings or an Android/Linux receiver to create a network.".into())
     }
 
     pub fn stop(&self) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            let mut host = self.host.lock().map_err(|_| "Hotspot state unavailable")?;
+            if host.is_some() {
+                windows_host::stop(&mut host)?;
+            }
+        }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let mut active = self.client.lock().map_err(|_| "Wi-Fi state unavailable")?;
@@ -203,7 +256,7 @@ impl HotspotState {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{Session, WifiNetwork};
+    use super::{radio, Session, WifiNetwork};
     use std::{
         fs::File,
         io::Read,
@@ -378,6 +431,17 @@ mod linux {
         bssid: Option<&str>,
         interface: Option<&str>,
     ) -> Result<Active, String> {
+        join_with_radio(run, &mut radio::iw, ssid, password, bssid, interface)
+    }
+
+    fn join_with_radio(
+        run: &mut Runner<'_>,
+        inspect: &mut Runner<'_>,
+        ssid: &str,
+        password: &str,
+        bssid: Option<&str>,
+        interface: Option<&str>,
+    ) -> Result<Active, String> {
         if ssid.is_empty()
             || ssid.len() > 32
             || ssid.chars().any(char::is_control)
@@ -417,6 +481,7 @@ mod linux {
                 ssid: ssid.into(),
                 password: String::new(),
                 address: None,
+                network_info: None,
             },
             uuid,
             interface: network.interface,
@@ -485,10 +550,18 @@ mod linux {
                 "Could not connect. Check the password, keep the hotspot running, and try scanning its QR code again.".into()
             });
         }
+        active.session.network_info = inspect(&["dev", &active.interface, "info"])
+            .ok()
+            .as_deref()
+            .and_then(radio::connection_description);
         Ok(active)
     }
 
     pub fn start(run: &mut Runner<'_>) -> Result<Active, String> {
+        start_with_radio(run, &mut radio::iw)
+    }
+
+    fn start_with_radio(run: &mut Runner<'_>, inspect: &mut Runner<'_>) -> Result<Active, String> {
         let mut random = [0u8; 32];
         File::open("/dev/urandom")
             .and_then(|mut file| file.read_exact(&mut random))
@@ -515,6 +588,7 @@ mod linux {
                 ssid: format!("PulseDrop-{}", &hex[..6]),
                 password: hex[32..56].into(),
                 address: None,
+                network_info: None,
             },
             uuid,
             interface,
@@ -555,27 +629,115 @@ mod linux {
             "disabled",
         ])?;
         let activated = (|| {
-            run(&[
-                "connection",
-                "up",
-                "uuid",
-                &active.uuid,
-                "ifname",
+            let supports_five = run(&[
+                "-g",
+                "WIFI-PROPERTIES.5GHZ",
+                "device",
+                "show",
                 &active.interface,
-            ])?;
-            let addresses = run(&["-g", "IP4.ADDRESS", "device", "show", &active.interface])?;
-            active.session.address = addresses
-                .lines()
-                .filter_map(|s| s.split('/').next())
-                .find(|s| {
-                    s.parse::<std::net::Ipv4Addr>()
-                        .is_ok_and(super::super::is_shareable_ipv4)
-                })
-                .map(str::to_string);
-            if active.session.address.is_none() {
-                return Err("The hotspot has no IPv4 address. Check system Wi-Fi settings.".into());
+            ])
+            .is_ok_and(|value| value == "yes");
+            let wide_supported = supports_five
+                && run(&["--version"]).is_ok_and(|value| radio::wide_channels_supported(&value));
+            let phy = if supports_five {
+                inspect(&["dev", &active.interface, "info"])
+                    .ok()
+                    .and_then(|info| radio::phy_name(&info))
+                    .and_then(|phy| inspect(&["phy", &phy, "info"]).ok())
+            } else {
+                None
+            };
+            let choices = if supports_five {
+                radio::choices(phy.as_deref(), wide_supported)
+            } else {
+                vec![radio::COMPATIBILITY]
+            };
+            let mut last_error = String::from("Could not start a compatible hotspot.");
+            for (attempt, choice) in choices.into_iter().enumerate() {
+                let current = run(&[
+                    "-g",
+                    "GENERAL.CON-UUID",
+                    "device",
+                    "show",
+                    &active.interface,
+                ])?;
+                if !current.is_empty()
+                    && current != "--"
+                    && current != active.uuid
+                    && Some(&current) != active.previous.as_ref()
+                {
+                    return Err("Wi-Fi was changed outside PulseDrop during setup. Your selected connection was preserved; retry when ready.".into());
+                }
+                if current == active.uuid {
+                    run(&["connection", "down", "uuid", &active.uuid])?;
+                }
+                // Modify only our profile. Clear wider settings before retries;
+                // old NetworkManager versions never receive the newer property.
+                // nmcli resets the default channel with an empty value; the
+                // literal "0" is rejected by its channel property parser.
+                let channel = if choice.channel == 0 {
+                    String::new()
+                } else {
+                    choice.channel.to_string()
+                };
+                let width = choice.width.unwrap_or(0).to_string();
+                let mut settings = vec![
+                    "connection",
+                    "modify",
+                    "uuid",
+                    &active.uuid,
+                    "802-11-wireless.band",
+                    choice.band,
+                    "802-11-wireless.channel",
+                    &channel,
+                ];
+                if wide_supported {
+                    settings.extend(["802-11-wireless.channel-width", &width]);
+                }
+                let result = run(&settings).and_then(|_| {
+                    run(&[
+                        "connection",
+                        "up",
+                        "uuid",
+                        &active.uuid,
+                        "ifname",
+                        &active.interface,
+                    ])
+                });
+                if let Err(error) = result {
+                    last_error = error;
+                    continue;
+                }
+                let current = run(&[
+                    "-g",
+                    "GENERAL.CON-UUID",
+                    "device",
+                    "show",
+                    &active.interface,
+                ])?;
+                if current != active.uuid {
+                    return Err("The hotspot connection changed during setup. Your current Wi-Fi connection was preserved.".into());
+                }
+                let addresses = run(&["-g", "IP4.ADDRESS", "device", "show", &active.interface])?;
+                active.session.address = addresses
+                    .lines()
+                    .filter_map(|s| s.split('/').next())
+                    .find(|s| {
+                        s.parse::<std::net::Ipv4Addr>()
+                            .is_ok_and(super::super::is_shareable_ipv4)
+                    })
+                    .map(str::to_string);
+                if active.session.address.is_none() {
+                    last_error =
+                        "The hotspot has no IPv4 address. Check system Wi-Fi settings.".into();
+                    continue;
+                }
+                let info = inspect(&["dev", &active.interface, "info"]).ok();
+                active.session.network_info =
+                    Some(radio::description(info.as_deref(), choice, attempt > 0));
+                return Ok(());
             }
-            Ok(())
+            Err(last_error)
         })();
         if let Err(error) = activated {
             return Err(if stop(&active, run).is_err() {
@@ -639,6 +801,309 @@ mod linux {
 
         const NETWORK: &str = "Phone\\:Lab:AA\\:BB\\:CC\\:DD\\:EE\\:FF:82:WPA2:wlan0";
 
+        struct RadioModel {
+            commands: Vec<Vec<String>>,
+            activations: Vec<(String, u16)>,
+            owned: String,
+            current: String,
+            band: String,
+            channel: u16,
+            width: u16,
+            version: &'static str,
+            phy: &'static str,
+            supports_five: bool,
+            iw_available: bool,
+            fail_wide: bool,
+            reject_wide: bool,
+            fail_five: bool,
+            fail_all: bool,
+            user_switch: bool,
+            no_address_once: bool,
+        }
+
+        impl Default for RadioModel {
+            fn default() -> Self {
+                Self {
+                    commands: Vec::new(), activations: Vec::new(), owned: String::new(),
+                    current: "original".into(), band: "bg".into(), channel: 0, width: 0,
+                    version: "nmcli tool, version 1.54.3",
+                    phy: "Band 2:\nVHT Capabilities (0):\n* 5180 MHz [36] (23 dBm)\n* 5200 MHz [40] (23 dBm)\n* 5220 MHz [44] (23 dBm)\n* 5240 MHz [48] (23 dBm)",
+                    supports_five: true, iw_available: true, fail_wide: false, reject_wide: false,
+                    fail_five: false, fail_all: false, user_switch: false, no_address_once: false,
+                }
+            }
+        }
+
+        impl RadioModel {
+            fn run(&mut self, args: &[&str]) -> Reply {
+                self.commands
+                    .push(args.iter().map(|s| s.to_string()).collect());
+                match args {
+                    ["-t", ..] => Ok("wlan0:wifi".into()),
+                    ["--version"] => Ok(self.version.into()),
+                    ["-g", "WIFI-PROPERTIES.AP", ..] => Ok("yes".into()),
+                    ["-g", "WIFI-PROPERTIES.5GHZ", ..] => {
+                        Ok(if self.supports_five { "yes" } else { "no" }.into())
+                    }
+                    ["-g", "GENERAL.CON-UUID", ..] => Ok(self.current.clone()),
+                    ["-g", "IP4.ADDRESS", ..] => {
+                        if std::mem::take(&mut self.no_address_once) {
+                            Ok(String::new())
+                        } else {
+                            Ok("10.42.0.1/24".into())
+                        }
+                    }
+                    ["connection", "add", ..] => {
+                        self.owned = args
+                            .windows(2)
+                            .find(|pair| pair[0] == "connection.uuid")
+                            .unwrap()[1]
+                            .into();
+                        Ok(String::new())
+                    }
+                    ["connection", "modify", "uuid", id, settings @ ..] => {
+                        assert_eq!(*id, self.owned);
+                        if self.reject_wide
+                            && settings
+                                .windows(2)
+                                .any(|pair| pair == ["802-11-wireless.channel-width", "80"])
+                        {
+                            return Err("Width unsupported".into());
+                        }
+                        for pair in settings.chunks_exact(2) {
+                            match pair[0] {
+                                "802-11-wireless.band" => self.band = pair[1].into(),
+                                "802-11-wireless.channel" => {
+                                    assert_ne!(pair[1], "0", "nmcli requires an empty value for automatic channel selection");
+                                    self.channel = if pair[1].is_empty() {
+                                        0
+                                    } else {
+                                        pair[1].parse().unwrap()
+                                    }
+                                }
+                                "802-11-wireless.channel-width" => {
+                                    self.width = pair[1].parse().unwrap()
+                                }
+                                _ => panic!("Unexpected setting"),
+                            }
+                        }
+                        Ok(String::new())
+                    }
+                    ["connection", "up", "uuid", "original", ..] => {
+                        self.current = "original".into();
+                        Ok(String::new())
+                    }
+                    ["connection", "up", "uuid", id, ..] => {
+                        assert_eq!(*id, self.owned);
+                        self.activations.push((self.band.clone(), self.width));
+                        if self.fail_all
+                            || (self.fail_five && self.band == "a")
+                            || (self.fail_wide && self.width == 80)
+                        {
+                            self.current = if self.user_switch {
+                                "manually-selected"
+                            } else {
+                                "--"
+                            }
+                            .into();
+                            Err("Activation failed".into())
+                        } else {
+                            self.current = self.owned.clone();
+                            Ok(String::new())
+                        }
+                    }
+                    ["connection", "down", "uuid", id] => {
+                        assert_eq!(*id, self.owned);
+                        self.current = "--".into();
+                        Ok(String::new())
+                    }
+                    ["connection", "delete", "uuid", id] => {
+                        assert_eq!(*id, self.owned);
+                        self.owned.clear();
+                        Ok(String::new())
+                    }
+                    _ => panic!("Unexpected NetworkManager query"),
+                }
+            }
+
+            fn inspect(&mut self, args: &[&str]) -> Reply {
+                if !self.iw_available {
+                    return Err("iw unavailable".into());
+                }
+                match args {
+                    ["phy", "phy0", "info"] => Ok(self.phy.into()),
+                    ["dev", "wlan0", "info"] if self.current == self.owned => Ok(format!(
+                        "wiphy 0\ntype AP\nchannel {} ({} MHz), width: {} MHz",
+                        if self.channel == 0 { 6 } else { self.channel },
+                        if self.band == "a" { 5180 } else { 2437 },
+                        if self.width == 0 { 20 } else { self.width }
+                    )),
+                    ["dev", "wlan0", "info"] => Ok("wiphy 0\ntype managed".into()),
+                    _ => panic!("Unexpected radio query"),
+                }
+            }
+        }
+
+        fn simulate_radio(model: RadioModel) -> (Result<Active, String>, RadioModel) {
+            let model = std::cell::RefCell::new(model);
+            let result = start_with_radio(&mut |args| model.borrow_mut().run(args), &mut |args| {
+                model.borrow_mut().inspect(args)
+            });
+            (result, model.into_inner())
+        }
+
+        #[test]
+        fn adaptive_hotspot_prefers_wide_five_ghz_and_reports_actual_settings() {
+            let (result, model) = simulate_radio(RadioModel::default());
+            let active = result.unwrap();
+            assert_eq!(model.activations, [("a".into(), 80)]);
+            assert_eq!(
+                active.session.network_info.as_deref(),
+                Some("5 GHz · channel 36 · 80 MHz.")
+            );
+            assert_eq!(model.current, active.uuid);
+            assert_eq!(active.previous.as_deref(), Some("original"));
+        }
+
+        #[test]
+        fn unsupported_or_failed_wide_setup_retries_conservative_five_ghz() {
+            for reject_setting in [false, true] {
+                let model = RadioModel {
+                    fail_wide: !reject_setting,
+                    reject_wide: reject_setting,
+                    ..Default::default()
+                };
+                let (result, model) = simulate_radio(model);
+                let active = result.unwrap();
+                assert_eq!(model.activations.last(), Some(&("a".into(), 0)));
+                assert!(active
+                    .session
+                    .network_info
+                    .unwrap()
+                    .contains("20 MHz. Wider-channel setup"));
+                assert!(!model
+                    .commands
+                    .iter()
+                    .any(|args| args.starts_with(&["connection".into(), "delete".into()])));
+            }
+        }
+
+        #[test]
+        fn failed_five_ghz_falls_back_to_compatibility_and_keeps_normal_cleanup() {
+            let (result, mut model) = simulate_radio(RadioModel {
+                fail_five: true,
+                ..Default::default()
+            });
+            let active = result.unwrap();
+            assert_eq!(
+                model.activations,
+                [("a".into(), 80), ("a".into(), 0), ("bg".into(), 0)]
+            );
+            assert!(active
+                .session
+                .network_info
+                .as_ref()
+                .unwrap()
+                .contains("5 GHz setup was unavailable"));
+            assert_eq!(
+                model
+                    .commands
+                    .iter()
+                    .filter(|args| args.starts_with(&["connection".into(), "add".into()]))
+                    .count(),
+                1
+            );
+            stop(&active, &mut |args| model.run(args)).unwrap();
+            assert!(model.owned.is_empty());
+            assert_eq!(model.current, "original");
+        }
+
+        #[test]
+        fn old_networkmanager_and_missing_iw_still_create_a_hotspot() {
+            for model in [
+                RadioModel {
+                    version: "1.46.0",
+                    ..Default::default()
+                },
+                RadioModel {
+                    iw_available: false,
+                    ..Default::default()
+                },
+                RadioModel {
+                    supports_five: false,
+                    ..Default::default()
+                },
+            ] {
+                let old_nm = model.version == "1.46.0";
+                let no_iw = !model.iw_available;
+                let (result, model) = simulate_radio(model);
+                let active = result.unwrap();
+                assert_eq!(model.activations.len(), 1);
+                if old_nm {
+                    assert!(model.commands.iter().all(|args| !args
+                        .iter()
+                        .any(|arg| arg == "802-11-wireless.channel-width")));
+                }
+                if no_iw {
+                    assert!(active
+                        .session
+                        .network_info
+                        .unwrap()
+                        .contains("actual channel details unavailable"));
+                }
+            }
+        }
+
+        #[test]
+        fn regulatory_restrictions_skip_five_ghz_without_attempting_it() {
+            let (result, model) = simulate_radio(RadioModel { phy: "* 2412 MHz [1] (20 dBm)\n* 5180 MHz [36] (no IR)\n* 5260 MHz [52] (radar detection)", ..Default::default() });
+            assert!(result.is_ok());
+            assert_eq!(model.activations, [("bg".into(), 0)]);
+        }
+
+        #[test]
+        fn all_failed_attempts_roll_back_and_never_loop_forever() {
+            let (result, model) = simulate_radio(RadioModel {
+                fail_all: true,
+                ..Default::default()
+            });
+            assert!(result.is_err());
+            assert_eq!(model.activations.len(), 3);
+            assert!(model.owned.is_empty());
+            assert_eq!(model.current, "original");
+        }
+
+        #[test]
+        fn retry_preserves_an_unrelated_connection_selected_during_setup() {
+            let (result, model) = simulate_radio(RadioModel {
+                fail_wide: true,
+                user_switch: true,
+                ..Default::default()
+            });
+            assert!(result.err().unwrap().contains("preserved"));
+            assert_eq!(model.activations.len(), 1);
+            assert_eq!(model.current, "manually-selected");
+            assert!(model.owned.is_empty());
+        }
+
+        #[test]
+        fn missing_address_deactivates_only_our_profile_before_retry() {
+            let (result, model) = simulate_radio(RadioModel {
+                no_address_once: true,
+                ..Default::default()
+            });
+            assert!(result.is_ok());
+            assert_eq!(model.activations, [("a".into(), 80), ("a".into(), 0)]);
+            assert_eq!(
+                model
+                    .commands
+                    .iter()
+                    .filter(|args| args.starts_with(&["connection".into(), "down".into()]))
+                    .count(),
+                1
+            );
+        }
+
         #[test]
         fn wifi_scan_parses_escaped_names_and_rejects_malformed_rows() {
             let networks = scan(&mut |_| Ok(format!("{NETWORK}\nBad:MAC:101:WPA2:wlan0\n:AA\\:BB\\:CC\\:DD\\:EE\\:FE:70:WPA2:wlan0")), true).unwrap();
@@ -651,7 +1116,7 @@ mod linux {
         #[test]
         fn joining_uses_an_owned_wpa2_profile_pinned_to_the_selected_access_point() {
             let mut commands = Vec::new();
-            let active = join(
+            let active = join_with_radio(
                 &mut |args| {
                     commands.push(args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
                     Ok(if args.contains(&"SSID,BSSID,SIGNAL,SECURITY,DEVICE") {
@@ -665,6 +1130,7 @@ mod linux {
                     }
                     .into())
                 },
+                &mut |_| Ok("type managed\nchannel 36 (5180 MHz), width: 80 MHz".into()),
                 "Phone:Lab",
                 "secret123",
                 Some("AA:BB:CC:DD:EE:FF"),
@@ -672,6 +1138,10 @@ mod linux {
             )
             .unwrap();
             assert_eq!(active.session.role, "sender");
+            assert_eq!(
+                active.session.network_info.as_deref(),
+                Some("5 GHz · channel 36 · 80 MHz.")
+            );
             assert!(active.session.password.is_empty());
             assert_eq!(active.session.address.as_deref(), Some("192.168.43.1"));
             let add = commands
@@ -762,12 +1232,16 @@ mod linux {
         #[test]
         fn start_creates_secure_owned_profile_and_returns_actual_address() {
             let mut commands = Vec::new();
+            let mut current = "previous-network".to_string();
             let mut run = |args: &[&str]| {
                 commands.push(args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+                if args.starts_with(&["connection", "up", "uuid"]) {
+                    current = args[3].into();
+                }
                 Ok(match args {
                     ["-t", ..] => "wlan0:wifi\neth0:ethernet",
                     ["-g", "WIFI-PROPERTIES.AP", ..] => "yes",
-                    ["-g", "GENERAL.CON-UUID", ..] => "previous-network",
+                    ["-g", "GENERAL.CON-UUID", ..] => &current,
                     ["-g", "IP4.ADDRESS", ..] => "10.42.0.1/24",
                     _ => "",
                 }
@@ -835,6 +1309,7 @@ mod linux {
                     ssid: "own".into(),
                     password: "secret".into(),
                     address: None,
+                    network_info: None,
                 },
                 uuid: "owned".into(),
                 interface: "wlan0".into(),
@@ -896,6 +1371,7 @@ mod linux {
                     ssid: "own".into(),
                     password: "secret".into(),
                     address: None,
+                    network_info: None,
                 },
                 uuid: "owned".into(),
                 interface: "wlan0".into(),

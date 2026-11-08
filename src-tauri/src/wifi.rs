@@ -48,9 +48,45 @@ mod native;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(super) use native::{available, is_active, join, scan, stop};
 
+// Use the BSS frequency, not a channel-number guess (6 GHz reuses numbers).
+#[cfg(any(target_os = "windows", test))]
+fn frequency_description(khz: u32) -> Option<String> {
+    let mhz = khz / 1000;
+    let (band, channel) = match mhz {
+        2484 => ("2.4 GHz", 14),
+        2412..=2472 if (mhz - 2407) % 5 == 0 => ("2.4 GHz", (mhz - 2407) / 5),
+        5005..=5895 if mhz % 5 == 0 => ("5 GHz", (mhz - 5000) / 5),
+        5935 => ("6 GHz", 2),
+        5955..=7115 if (mhz - 5950) % 5 == 0 => ("6 GHz", (mhz - 5950) / 5),
+        _ => return None,
+    };
+    Some(format!("{band} · channel {channel}."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reports_measured_frequency_without_confusing_6ghz_channels() {
+        assert_eq!(
+            frequency_description(5180000).as_deref(),
+            Some("5 GHz · channel 36.")
+        );
+        assert_eq!(
+            frequency_description(2437000).as_deref(),
+            Some("2.4 GHz · channel 6.")
+        );
+        assert_eq!(
+            frequency_description(2484000).as_deref(),
+            Some("2.4 GHz · channel 14.")
+        );
+        assert_eq!(
+            frequency_description(5955000).as_deref(),
+            Some("6 GHz · channel 1.")
+        );
+        assert_eq!(frequency_description(0), None);
+        assert_eq!(frequency_description(5181000), None);
+    }
     #[test]
     fn temporary_windows_profile_escapes_password_and_uses_exact_utf8_ssid() {
         let profile = profile_xml("Phone & 中文", "test<&>\"'password").unwrap();
