@@ -4,8 +4,8 @@ use serde::Serialize;
 use std::process::Command;
 use std::{
     collections::HashMap,
-    fs::{self, File},
-    io::{BufRead, BufReader, Read, Write},
+    fs,
+    io::{BufRead, BufReader, Write},
     net::{Ipv4Addr, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
     sync::{
@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 mod discovery;
 mod network;
+mod receive;
 use network::*;
 
 struct DiscoveryState {
@@ -100,6 +101,7 @@ struct ReceiveSession {
 
 #[derive(Clone, Serialize)]
 struct ReceivedFile {
+    transfer_id: String,
     name: String,
     size: u64,
     path: String,
@@ -667,42 +669,26 @@ fn handle_stream(
         .and_then(|value| value.parse::<u64>().ok())
         .ok_or_else(|| "Missing content length".to_string())?;
 
-    let target_path = available_file_path(inbox_dir, &file_name);
-    let mut target = File::create(&target_path)
-        .map_err(|error| format!("Could not create received file: {error}"))?;
-
-    if !request.body_start.is_empty() {
-        let initial_len = request.body_start.len().min(content_length as usize);
-        target
-            .write_all(&request.body_start[..initial_len])
-            .map_err(|error| format!("Could not write received file: {error}"))?;
-    }
-
-    let mut remaining = content_length.saturating_sub(request.body_start.len() as u64);
-    let mut buffer = [0_u8; 64 * 1024];
-    while remaining > 0 {
-        let max_read = buffer.len().min(remaining as usize);
-        let read_len = stream
-            .read(&mut buffer[..max_read])
-            .map_err(|error| format!("Could not read upload: {error}"))?;
-        if read_len == 0 {
-            return Err("Upload ended early".to_string());
-        }
-        target
-            .write_all(&buffer[..read_len])
-            .map_err(|error| format!("Could not write upload: {error}"))?;
-        remaining -= read_len as u64;
-    }
-
-    write_response(&mut stream, 200, "OK", "Saved", "text/plain")?;
+    let saved = receive::upload(
+        &mut stream,
+        inbox_dir,
+        &file_name,
+        content_length,
+        &request.body_start,
+        |progress| {
+            let _ = app.emit("file-receive-progress", progress);
+        },
+    )?;
     let _ = app.emit(
         "file-received",
         ReceivedFile {
+            transfer_id: saved.transfer_id,
             name: file_name,
             size: content_length,
-            path: target_path.to_string_lossy().to_string(),
+            path: saved.path.to_string_lossy().to_string(),
         },
     );
+    write_response(&mut stream, 200, "OK", "Saved", "text/plain")?;
 
     Ok(())
 }
