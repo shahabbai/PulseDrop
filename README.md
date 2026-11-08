@@ -4,17 +4,19 @@
 
 # PulseDrop
 
-PulseDrop is a Windows and Android-first local network file transfer app built with Tauri 2. It lets devices on the same Wi-Fi/LAN send files directly to each other without cloud storage, accounts, or an external server.
+PulseDrop is a Windows and Android-first local file transfer app built with Tauri 2. Devices can share an existing Wi-Fi/LAN or connect through a receiver-hosted hotspot, without cloud storage, accounts, or an external server.
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.3.1**. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with that version's [changelog](CHANGELOG.md).
+The next release is **0.4.0**, adding receiver-hotspot transfers, nearby Wi-Fi discovery and QR connection. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with that version's [changelog](CHANGELOG.md).
 
 ## Features
 
 - Send one or more files from PC to phone or phone to PC.
 - Start a receiver on any device and share its IP, port, and 6-digit pairing code.
 - Automatically discover active receivers on the LAN and select one to fill its IP and port.
+- Transfer without a router or internet using **Hotspot**: create a local-only hotspot on Android 8+ or a supported Linux receiver, then join it on the sender. Windows/macOS hosting uses system setup with OS restrictions. See [hotspot transfers and platform support](docs/hotspot-transfer.md).
+- On Android 10+, Linux, Windows and macOS, find nearby Wi-Fi inside PulseDrop or scan the other device’s QR, then choose **Connect**. The QR fills the Wi-Fi password and receiver details without typing them. You can also share a system-created WPA2 hotspot by QR.
 - Save received files into an app Inbox folder.
 - Follow live byte progress and speed on both the sending and receiving devices, with per-file transfer activity.
 - Cancel from either device, stop the remaining sender queue, and remove incomplete files while preserving completed transfers. See [transfer cancellation](docs/transfer-cancellation.md).
@@ -113,7 +115,7 @@ source scripts/local-build-env.sh
 npm run linux:build
 ```
 
-The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.2.0_amd64.deb`. The existing `0.1.0` test artifact can still be installed with `sudo apt install ./artifacts/PulseDrop_0.1.0_amd64.deb`, or run `./src-tauri/target/release/pulse_drop` directly after building.
+The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.4.0_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
 
 On another Ubuntu machine, install the [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux), Rust, and Node.js before building; `.build-tools/` is local and is not committed. See [device testing instructions](docs/device-testing.md) for the Ubuntu/Android test builds and a transfer checklist.
 
@@ -291,7 +293,6 @@ PulseDrop tries to prefer Wi-Fi/Ethernet over VPN interfaces. If a VPN address s
 ## Roadmap Ideas
 
 - Android App Bundle / Play Store distribution.
-- QR code pairing.
 - Signed and notarized macOS releases.
 - iOS build.
 - Optional installer step for Windows firewall rule with user/admin consent.

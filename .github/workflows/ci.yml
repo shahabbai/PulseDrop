@@ -112,6 +112,8 @@ jobs:
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/PulseDrop.app"
           plutil -lint "$app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocationUsageDescription' "$app/Contents/Info.plist"
           binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
           # -verify_arch consumes the following arguments as architecture names.
           lipo "$app/Contents/MacOS/$binary" -verify_arch arm64 x86_64

@@ -1,5 +1,15 @@
 # Ubuntu 26.04 and Android device testing
 
+For transfers without a router or internet, use the [receiver hotspot setup and physical test checklist](hotspot-transfer.md). Local-network testing below remains applicable.
+
+## 0.4.0 release testing
+
+Use the fresh installers from the final 0.4.0 CI/release build to test this release. Its Android version is `0.4.0`, version code `4000`. Earlier local hotspot test APKs still report `0.3.1`; the `hotspot_multiplatform` APK includes Android discovery/QR controls, while the earlier `hotspot_quick_connect` APK has a Linux-only picker. A filename change does not update an APK’s internal version.
+
+On Android 10+ open **Send files → Hotspot** and verify **Scan QR**, **Choose QR image**, and **Refresh Wi-Fi** above the manual Wi-Fi details. Test Location permission denial/retry separately from Camera permission: denying a scan must leave QR/manual connection available. Repeat discovery, joining, transfers and Disconnect on Linux, Windows and macOS using the [hotspot checklist](hotspot-transfer.md#validation-and-physical-test-checklist). Local network and cancellation checks below still apply; install 0.4.0 on both devices for testing the new workflow.
+
+The named artifacts and validation results below describe earlier test builds, rather than newly generated 0.4.0 installers. Release builds use the existing Android release signing key; local debug builds have a different identity.
+
 ## Install the test builds
 
 The `artifacts/` directory contains the test packages and build/test logs. It is ignored by Git.

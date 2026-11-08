@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- Transfer through a receiver-hosted Wi-Fi hotspot without an existing router or internet connection.
+- Create a local-only hotspot on Android 8+ or a temporary WPA2 hotspot on compatible Linux/NetworkManager devices, then start receiving through the existing file-transfer protocol.
+- Discover nearby Wi-Fi networks and join a receiver hotspot inside PulseDrop on Android 10+, Linux, Windows and macOS, with system permission/connection approval where required.
+- Scan the other device’s connection QR or import a QR image to fill its Wi-Fi password, receiver address, port and pairing code. Review the network and press **Connect** before switching Wi-Fi.
+- Share an already enabled system hotspot by QR. Hiding its QR clears the shared credentials while leaving the system hotspot under the user’s control.
+
+### Connection experience
+
+- Use the same nearby Wi-Fi picker, QR controls and connection actions across Android, Linux, Windows and macOS.
+- Replace platform-specific connection instructions with “on the other device” and prefer the rear camera on phones.
+- Explain Wi-Fi/Location and camera permissions, scan throttling, unavailable hardware and connection errors with retry or manual setup options.
+- Add setup cancellation, hotspot-loss feedback, temporary credential cleanup and protection against older setup/scan results interfering with a newer connection.
+- Release app-owned hotspot connections on stop and attempt to restore the previous network without overriding a network chosen manually in system settings.
+- Keep QR generation and decoding on the device. Camera scanning requests video only and stops after a scan, cancellation, timeout, leaving Send or app backgrounding.
+
+### Compatibility and downloads
+
+- **Local network remains the default.** Existing discovery, pairing, transfer progress, queues, cancellation and Inbox behavior are preserved.
+- Automatic offline hotspot creation requires compatible Android/Linux hardware. Windows/macOS use system hotspot setup with OS and uplink restrictions. macOS remains experimental; physical Windows/macOS hotspot testing is still required.
+- Android installation requires API 24+ on ARM64; in-app hotspot creation requires Android 8+, and in-app joining requires Android 10+. Older Android versions can use system Wi-Fi settings.
+- Update all app manifests to **0.4.0**, with Android version code **4000**. The release workflow builds fresh installers from the `v0.4.0` tag and publishes this version’s notes only.
+
+| Release asset | Platform |
+| --- | --- |
+| `PulseDrop_0.4.0_android_arm64.apk` | Android ARM64, signed with the existing release identity |
+| `PulseDrop_0.4.0_amd64.deb` | Ubuntu/Linux x86-64, built on Ubuntu 24.04 |
+| `PulseDrop_0.4.0_x64-setup.exe` | Windows x64 installer; unsigned |
+| `PulseDrop_0.4.0_universal.dmg` | macOS Apple Silicon and Intel; ad hoc signed, not notarized |
+| `SHA256SUMS` | SHA-256 checksums for all four installers |
+
+### Validation
+
+- Local hotspot validation passed 38 Rust tests and 65 JavaScript tests, Linux/Android builds, and Windows native-code cross-compilation.
+- Native Linux integration checks used simulated Wi-Fi and camera input with real HTTP transfers to verify QR connection, exact-byte delivery, cleanup, restoration, cancellation and responsive layouts.
+- Android hotspot discovery and QR controls were confirmed on the user’s phone. Hosted Windows/macOS builds must pass CI before tagging; physical Windows/macOS Wi-Fi and camera tests remain pending.
+
+[Hotspot setup and platform support](https://github.com/shahabbai/PulseDrop/blob/v0.4.0/docs/hotspot-transfer.md) · [Compare v0.3.1…v0.4.0](https://github.com/shahabbai/PulseDrop/compare/v0.3.1...v0.4.0)
+
 ## 0.3.1
 
 ### Added

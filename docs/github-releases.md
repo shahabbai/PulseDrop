@@ -1,8 +1,8 @@
 # Automatic GitHub releases
 
-Use **v0.3.1** for transfer cancellation on both devices and version-specific release notes. Leave existing published tags unchanged.
+Use **v0.4.0** for receiver-hotspot transfers, nearby Wi-Fi discovery and QR connection across Android, Linux, Windows and macOS. Leave existing published tags unchanged.
 
-The application manifests and lockfiles are prepared as 0.3.1. Run the commands below to commit and push the changes, wait for CI, and then push the tag. No commit, tag, or GitHub publication is performed by preparing these files.
+The application manifests and lockfiles are prepared as 0.4.0. Run the commands below to commit and push the changes, wait for CI, and then push the tag. No commit, tag, or GitHub publication is performed by preparing these files.
 
 ## What happens automatically
 
@@ -13,7 +13,7 @@ flowchart LR
     B --> D[Windows tests and EXE]
     B --> E[Android debug APK]
     B --> M[macOS tests and universal test DMG]
-    F[Push v0.3.1 tag] --> G[Validate tag, changelog, and tests]
+    F[Push v0.4.0 tag] --> G[Validate tag, changelog, and tests]
     G --> H[Build DEB, EXE, release APK, universal DMG]
     H --> I[Sign and verify APK]
     I --> J[Collect installers and SHA256SUMS]
@@ -22,16 +22,16 @@ flowchart LR
 
 `.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It checks all version files, runs JavaScript and desktop Rust tests, and builds Linux and Windows installers, an Android debug APK, and a universal macOS test DMG. Its artifacts are available on the workflow run for seven days. CI requires no signing secrets and never publishes a release.
 
-`.github/workflows/release.yml` runs when you push a stable tag such as `v0.3.1`. The tag must match the versions in `package.json`, both lockfiles, `Cargo.toml`, and `tauri.conf.json`, and `CHANGELOG.md` must have a non-empty entry for that version. It tests and builds Linux, Windows, macOS, and Android, signs the Android release APK, then creates a GitHub Release only after all release builds succeed. Assets are uploaded to a temporary draft, which the workflow publishes automatically after upload completes.
+`.github/workflows/release.yml` runs when you push a stable tag such as `v0.4.0`. The tag must match the versions in `package.json`, both lockfiles, `Cargo.toml`, and `tauri.conf.json`, and `CHANGELOG.md` must have a non-empty entry for that version. It tests and builds Linux, Windows, macOS, and Android, signs the Android release APK, then creates a GitHub Release only after all release builds succeed. Assets are uploaded to a temporary draft, which the workflow publishes automatically after upload completes.
 
-The Release page body contains **only the tagged version’s section** from `CHANGELOG.md`, extracted by `scripts/release-notes.mjs` and passed through GitHub CLI’s `--notes-file`. For `v0.3.1`, the 0.3.0 and 0.2.0 entries stay in the repository and do not appear in that release’s description. Missing, empty, or duplicate version headings fail validation. Draft retries use the same tagged section. Preview the body with `node scripts/release-notes.mjs 0.3.1`. See the [GitHub CLI release documentation](https://cli.github.com/manual/gh_release_create).
+The Release page body contains **only the tagged version’s section** from `CHANGELOG.md`, extracted by `scripts/release-notes.mjs` and passed through GitHub CLI’s `--notes-file`. For `v0.4.0`, the 0.3.1, 0.3.0 and earlier entries stay in the repository and do not appear in that release’s description. Missing, empty, or duplicate version headings fail validation. Draft retries use the same tagged section. Preview the body with `node scripts/release-notes.mjs 0.4.0`. See the [GitHub CLI release documentation](https://cli.github.com/manual/gh_release_create).
 
 | Release asset | Architecture / platform |
 | --- | --- |
-| `PulseDrop_0.3.1_amd64.deb` | Linux x86-64, built on Ubuntu 24.04 |
-| `PulseDrop_0.3.1_x64-setup.exe` | Windows x64 NSIS installer |
-| `PulseDrop_0.3.1_android_arm64.apk` | Android ARM64 release APK, API 24+ |
-| `PulseDrop_0.3.1_universal.dmg` | macOS Apple Silicon and Intel, experimental/ad hoc signed |
+| `PulseDrop_0.4.0_amd64.deb` | Linux x86-64, built on Ubuntu 24.04 |
+| `PulseDrop_0.4.0_x64-setup.exe` | Windows x64 NSIS installer |
+| `PulseDrop_0.4.0_android_arm64.apk` | Android ARM64 release APK, API 24+ |
+| `PulseDrop_0.4.0_universal.dmg` | macOS Apple Silicon and Intel, experimental/ad hoc signed |
 | `SHA256SUMS` | SHA-256 checksums for all four installers |
 
 The Linux build uses Ubuntu 24.04 as a baseline for compatibility with newer Ubuntu releases, including your Ubuntu 26.04 machine. The Windows job runs natively on `windows-2022`; it produces an `.exe` installer, rather than a standalone executable. The Windows installer is currently unsigned, so Windows may show an unknown-publisher prompt. Windows certificate signing can be added separately.
@@ -40,7 +40,7 @@ These are GitHub-hosted builds. The workflow installs its own toolchain and does
 
 ## Download and test the macOS build
 
-No personal Mac or Apple signing secrets are needed to build the ad hoc signed DMG. Both CI's **macOS universal test DMG** job and Release's **macOS universal DMG** job run on GitHub's `macos-15` runner, build the frontend before native Rust tests, and compile both Apple Silicon and Intel targets into one installer. They request `--bundles app,dmg` so Tauri retains the `.app` for verification; a DMG-only build removes that intermediate app after packaging. Each verifies the app's ad hoc signature, both executable architectures, the local network permission description, and the DMG checksum before uploading the artifact.
+No personal Mac or Apple signing secrets are needed to build the ad hoc signed DMG. Both CI's **macOS universal test DMG** job and Release's **macOS universal DMG** job run on GitHub's `macos-15` runner, build the frontend before native Rust tests, and compile both Apple Silicon and Intel targets into one installer. They request `--bundles app,dmg` so Tauri retains the `.app` for verification; a DMG-only build removes that intermediate app after packaging. Each verifies the app's ad hoc signature, both executable architectures, the local network, camera and Location permission descriptions, and the DMG checksum before uploading the artifact.
 
 After committing/pushing the CI changes, open [Actions → CI](https://github.com/shahabbai/PulseDrop/actions/workflows/ci.yml), select the latest successful run, and download **ci-macos-universal-dmg** from **Artifacts**. You can also use **Run workflow** on a branch containing the changes. Extract the downloaded ZIP and share the `.dmg` with a Mac tester. No new version or release tag is needed for this CI build.
 
@@ -96,80 +96,84 @@ Open that file locally, select/copy all its contents, and update the secret unde
 
 No personal access token is needed. The final publishing job requests `contents: write` for GitHub's automatically supplied `GITHUB_TOKEN`; other jobs use read access. If repository or organization policy disables Actions or restricts the referenced actions/token permissions, adjust that policy under **Settings → Actions → General**.
 
-## 3. Commit 0.3.1 manually
+## 3. Commit 0.4.0 manually
 
-Run from the repository root on `main`. Review any existing staged changes with `git diff --cached --name-only` before starting. These explicit lists exclude `design-system/`, `.agents/`, `.codex/`, build artifacts, tools, and signing files. They remain ignored.
+Run these commands in Bash from the repository root on `main`. The version bump and changelog are already applied. The first commit keeps all feature code, dependencies and version files together; the second adds release documentation and CI privacy checks. This avoids an intermediate commit with mismatched manifest versions.
 
-### Cancellation controls, protocol, and tests
-
-```bash
-git add src/index.html src/main.js src/styles.css src/receive-progress.js src/file-body.js \
-  src-tauri/src/lib.rs src-tauri/src/receive.rs src-tauri/src/transfers.rs \
-  tests/receive-progress.test.mjs tests/file-body.test.mjs docs/receive-progress.md docs/transfer-cancellation.md
-git diff --cached --stat
-git commit -m "feat: cancel transfers from either device"
-```
-
-### Notes for the tagged version only
+Review existing staged files first. The explicit file lists below exclude `design-system/`, `.agents/`, `.codex/`, `.build-tools/`, artifacts, generated assets and signing files. These local paths are already ignored; do not use `git add .` for this release.
 
 ```bash
-git add .github/workflows/release.yml scripts/release-notes.mjs tests/release-notes.test.mjs
-git diff --cached --stat
-git commit -m "ci: publish only the tagged version changelog"
-```
-
-### Version and release documentation
-
-The version bump is already applied. Re-running the version command is safe and updates the five files together.
-
-```bash
-npm run version:bump -- 0.3.1
-npm run version:check -- v0.3.1
+cd /home/shahab/PulseDrop
+git status --short
+git diff --cached --name-only
+npm run version:check -- v0.4.0
 npm test
 npm run frontend:build
-node scripts/release-notes.mjs 0.3.1
-git add package.json package-lock.json src-tauri/Cargo.toml \
-  src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md README.md \
-  docs/device-testing.md docs/github-releases.md
+node scripts/release-notes.mjs 0.4.0
+```
+
+### Hotspot transfers, platform discovery, QR connection and version files
+
+```bash
+git add -- package.json package-lock.json \
+  src/{index.html,main.js,styles.css,hotspot.js,hotspot-ui.js,hotspot-connect-ui.js,hotspot-qr.js,qr-scanner.js} \
+  src-tauri/{Cargo.toml,Cargo.lock,tauri.conf.json,build.rs,Info.plist} \
+  src-tauri/src/{lib,camera,hotspot,wifi,wifi_windows,wifi_macos}.rs \
+  src-tauri/native/wifi_macos.m \
+  src-tauri/gen/android/app/src/main/AndroidManifest.xml \
+  src-tauri/gen/android/app/src/main/java/com/pulsedrop/transfer/{MainActivity,PulseDropAndroidBridge,PulseDropHotspot}.kt \
+  tests/hotspot.test.mjs tests/hotspot-ui.test.mjs tests/hotspot-qr.test.mjs
 git diff --cached --stat
-git commit -m "chore: prepare PulseDrop 0.3.1"
+git commit -m "feat: add hotspot transfers and QR connection in 0.4.0"
+```
+
+### Release notes, documentation and CI checks
+
+```bash
+git add -- .github/workflows/ci.yml .github/workflows/release.yml \
+  CHANGELOG.md README.md docs/device-testing.md \
+  docs/hotspot-transfer.md docs/github-releases.md
+git diff --cached --stat
+git commit -m "chore: prepare 0.4.0 release notes and CI checks"
 git status --short
 git push origin main
 ```
 
-Wait for **CI on the final commit** to pass. CI artifacts can be used for installation tests; the release tag builds fresh installers and signs the Android release APK with the existing release identity. Both devices need 0.3.1 for coordinated cancellation and consistent terminal status.
+Wait for **CI on the final commit** to pass for all platforms, including the new macOS native Wi-Fi adapter. CI artifacts can be used for installation tests. The release tag builds fresh installers and signs the Android APK with the existing release identity; do not rename the earlier 0.3.1 local test APKs to 0.4.0. Existing local build artifacts are not changed by the version bump.
 
-## 4. Publish version 0.3.1
+Install 0.4.0 on both devices to test the complete hotspot/QR workflow. Android needs its platform Wi-Fi permissions; macOS remains experimental and physical Windows/macOS hotspot/camera tests are still pending. See [hotspot support and testing](hotspot-transfer.md).
+
+## 4. Publish version 0.4.0
 
 After the final commit passes CI, with your existing Android secrets still configured:
 
 ```bash
-git tag -a v0.3.1 -m "PulseDrop 0.3.1"
-git push origin v0.3.1
+git tag -a v0.4.0 -m "PulseDrop 0.4.0"
+git push origin v0.4.0
 ```
 
-Pushing this tag starts **Release**. Once every job succeeds, GitHub automatically publishes [the release](https://github.com/shahabbai/PulseDrop/releases) with the `.deb`, `.apk`, `.exe`, `.dmg`, checksums, and only the 0.3.1 section from `CHANGELOG.md` as its visible release notes. No installer needs to be uploaded or committed by hand. The APK is ARM64, the Windows and Linux packages are x64, and the DMG contains both macOS architectures.
+Pushing this tag starts **Release**. Once every job succeeds, GitHub automatically publishes [the release](https://github.com/shahabbai/PulseDrop/releases) with the `.deb`, `.apk`, `.exe`, `.dmg`, checksums, and only the 0.4.0 section from `CHANGELOG.md` as its visible release notes. No installer needs to be uploaded or committed by hand. The APK is ARM64, the Windows and Linux packages are x64, and the DMG contains both macOS architectures.
 
 Pushing a commit alone runs CI. Pushing the matching version tag publishes the release. An existing published tag must not be reused or moved.
 
 ## Future versions
 
-After 0.3.1, use `0.3.2` for fixes or `0.4.0` for another feature release. After committing the feature/fix, update the version and changelog:
+After 0.4.0, use `0.4.1` for fixes or `0.5.0` for another feature release. After committing the feature/fix, update the version and changelog:
 
 ```bash
-npm run version:bump -- 0.3.2
+npm run version:bump -- 0.4.1
 # Update CHANGELOG.md with the release notes.
 npm run version:check
 git add package.json package-lock.json src-tauri/Cargo.toml \
   src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
-git commit -m "Release 0.3.2"
+git commit -m "Release 0.4.1"
 git push origin main
 # Wait for CI to pass, then:
-git tag -a v0.3.2 -m "PulseDrop 0.3.2"
-git push origin v0.3.2
+git tag -a v0.4.1 -m "PulseDrop 0.4.1"
+git push origin v0.4.1
 ```
 
-`version:bump` updates the five manifest/lockfiles together. Android's default version code is derived from this version (`0.3.1` becomes `3001`), so increasing the version also increases the Android update version code. This setup accepts stable numeric versions only; prerelease suffixes need an explicit version-code policy before adding them.
+`version:bump` updates the five manifest/lockfiles together. Android's default version code is derived from this version (`0.4.0` becomes `4000`), so increasing the version also increases the Android update version code. This setup accepts stable numeric versions only; prerelease suffixes need an explicit version-code policy before adding them.
 
 ## If a run fails
 
@@ -185,4 +189,4 @@ The desktop build approach follows [Tauri's GitHub Actions guidance](https://v2.
 
 ## Local validation
 
-The cancellation work is validated locally through native Rust tests, frontend tests, and Linux WebView integration with real local HTTP transfers. See [transfer cancellation](transfer-cancellation.md). The release-note extractor has tests for exact version selection, preserved Markdown subsections, missing/empty/duplicate sections, and Windows line endings. Workflow linting and mocked publishing checks validate the release commands; GitHub-hosted Windows/macOS builds still run after you push. This setup does not publish or modify GitHub releases during local validation.
+The hotspot work passed 38 Rust tests, 65 JavaScript tests, native Linux integration using simulated Wi-Fi/camera input with real HTTP transfers, Linux/Android builds and Windows native-code cross-compilation. The user confirmed Android discovery/QR controls on their phone. See [hotspot validation and platform limits](hotspot-transfer.md) and [transfer cancellation](transfer-cancellation.md). The release-note extractor has tests for exact version selection, preserved Markdown subsections, missing/empty/duplicate sections, and Windows line endings. Workflow linting and mocked publishing checks validate the release commands; GitHub-hosted Windows/macOS builds still run after you push. This setup does not publish or modify GitHub releases during local validation.
