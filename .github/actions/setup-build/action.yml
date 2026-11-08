@@ -31,6 +31,22 @@ runs:
     - name: Install frontend dependencies
       shell: bash
       run: npm ci
+    - name: Locate Windows installer tools cache
+      if: runner.os == 'Windows'
+      id: windows-tools
+      shell: pwsh
+      run: |
+        $toolsPath = Join-Path $env:LOCALAPPDATA 'tauri'
+        "path=$toolsPath" >> $env:GITHUB_OUTPUT
+        $cliVersion = node -p "require('./node_modules/@tauri-apps/cli/package.json').version"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        "cli-version=$cliVersion" >> $env:GITHUB_OUTPUT
+    - name: Cache Windows installer tools
+      if: runner.os == 'Windows'
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ steps.windows-tools.outputs.path }}
+        key: windows-tauri-bundler-v1-${{ runner.arch }}-${{ steps.windows-tools.outputs.cli-version }}
     - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
       if: inputs.android == 'true'
       with:

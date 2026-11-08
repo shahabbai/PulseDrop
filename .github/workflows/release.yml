@@ -77,9 +77,7 @@ jobs:
         shell: bash
         env:
           BUNDLE: ${{ matrix.bundle }}
-        run: |
-          rm -rf src-tauri/target/release/bundle
-          npm run tauri -- build --bundles "$BUNDLE" --ci -- --locked
+        run: node scripts/build-installer.mjs "$BUNDLE"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-${{ matrix.artifact }}

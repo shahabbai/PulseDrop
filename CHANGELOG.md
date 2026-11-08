@@ -26,6 +26,7 @@
 - Automatic offline hotspot creation requires compatible Android/Linux hardware. Windows/macOS use system hotspot setup with OS and uplink restrictions. macOS remains experimental; physical Windows/macOS hotspot testing is still required.
 - Android installation requires API 24+ on ARM64; in-app hotspot creation requires Android 8+, and in-app joining requires Android 10+. Older Android versions can use system Wi-Fi settings.
 - Update all app manifests to **0.4.0**, with Android version code **4000**. The release workflow builds fresh installers from the `v0.4.0` tag and publishes this version’s notes only.
+- Cache Windows installer tools by Tauri CLI version and retry temporary installer-download failures up to three attempts in CI and Release, while preserving failures for compilation errors and persistent outages.
 
 | Release asset | Platform |
 | --- | --- |
@@ -37,7 +38,7 @@
 
 ### Validation
 
-- Local hotspot validation passed 38 Rust tests and 65 JavaScript tests, Linux/Android builds, and Windows native-code cross-compilation.
+- Local validation passed 38 Rust tests and 73 JavaScript tests, including installer retry/error handling, Linux/Android builds, and Windows native-code cross-compilation.
 - Native Linux integration checks used simulated Wi-Fi and camera input with real HTTP transfers to verify QR connection, exact-byte delivery, cleanup, restoration, cancellation and responsive layouts.
 - Android hotspot discovery and QR controls were confirmed on the user’s phone. Hosted Windows/macOS builds must pass CI before tagging; physical Windows/macOS Wi-Fi and camera tests remain pending.
 
