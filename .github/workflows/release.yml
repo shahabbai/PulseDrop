@@ -33,6 +33,19 @@ jobs:
       - name: Check tag against every manifest
         id: version
         run: npm run version:check -- "$GITHUB_REF_NAME"
+      - name: Require the release changelog
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          version = os.environ['RELEASE_VERSION']
+          changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
+          section = re.search(r'^## ' + re.escape(version) + r'\s*\n(.*?)(?=^## |\Z)', changelog, re.M | re.S)
+          if not section or not section.group(1).strip():
+              raise SystemExit('Add a non-empty ## ' + version + ' entry to CHANGELOG.md before tagging.')
+          PY
       - run: npm test
       - run: npm run frontend:build
 
@@ -79,6 +92,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  macos:
+    name: macOS universal DMG
+    needs: checks
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+      - name: Install Apple Silicon and Intel Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build frontend for Rust tests
+        run: npm run frontend:build
+      - name: Rust tests on macOS
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Build ad hoc signed universal DMG
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: |
+          rm -rf src-tauri/target/universal-apple-darwin/release/bundle
+          # Keep the .app for verification; a dmg-only build deletes it after packaging.
+          npm run tauri -- build --target universal-apple-darwin --bundles app,dmg --ci -- --locked
+      - name: Verify app signature, architectures, and disk image
+        run: |
+          app="src-tauri/target/universal-apple-darwin/release/bundle/macos/PulseDrop.app"
+          plutil -lint "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist"
+          binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/$binary"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          hdiutil verify src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-macos-dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
   android:
     name: Signed Android release APK
     needs: checks
@@ -88,7 +140,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Require Android signing secrets
+      - name: Validate Android signing secrets
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -96,11 +148,17 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           python3 - <<'PY'
-          import os
+          import base64, binascii, os
           names = ['ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD']
           missing = [name for name in names if not os.environ.get(name)]
           if missing:
               raise SystemExit('Configure GitHub repository secrets: ' + ', '.join(missing))
+          try:
+              data = base64.b64decode(''.join(os.environ['ANDROID_KEYSTORE_BASE64'].split()), validate=True)
+              if not data:
+                  raise ValueError('Empty keystore')
+          except (binascii.Error, ValueError):
+              raise SystemExit('ANDROID_KEYSTORE_BASE64 is invalid. Re-encode your existing keystore and replace the secret with the full Base64 file contents, not its filename or path. See docs/github-releases.md.')
           PY
       - uses: ./.github/actions/setup-build
         with:
@@ -115,7 +173,7 @@ jobs:
           import base64, os
           from pathlib import Path
           key = Path(os.environ['RUNNER_TEMP']) / 'pulsedrop-release.jks'
-          key.write_bytes(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'].strip(), validate=True))
+          key.write_bytes(base64.b64decode(''.join(os.environ['ANDROID_KEYSTORE_BASE64'].split()), validate=True))
           key.chmod(0o600)
           PY
       - name: Align, sign, and verify APK
@@ -142,12 +200,15 @@ jobs:
 
   publish:
     name: Publish all installers
-    needs: [checks, desktop, android]
+    needs: [checks, desktop, macos, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: release-*
@@ -161,14 +222,14 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          for extension in ['deb', 'apk', 'exe']:
+          for extension in ['deb', 'apk', 'exe', 'dmg']:
               files = list(Path('.').glob('*.' + extension))
               if len(files) != 1:
                   raise SystemExit('Expected exactly one ' + extension + ' installer, found ' + str(len(files)))
               if '_' + os.environ['RELEASE_VERSION'] + '_' not in files[0].name:
                   raise SystemExit('Installer version does not match the release: ' + files[0].name)
           PY
-          sha256sum ./*.deb ./*.apk ./*.exe > SHA256SUMS
+          sha256sum ./*.deb ./*.apk ./*.exe ./*.dmg > SHA256SUMS
       - name: Upload assets and publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,7 +242,8 @@ jobs:
           fi
           if [[ "$state" != "true" ]]; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
-              --title "PulseDrop $GITHUB_REF_NAME" --generate-notes
+              --title "PulseDrop $GITHUB_REF_NAME" --notes-file CHANGELOG.md
           fi
+          gh release edit "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
           gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest

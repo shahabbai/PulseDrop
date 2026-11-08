@@ -15,3 +15,8 @@ artifacts/
 *.keystore.base64
 src-tauri/gen/android/app/src/main/assets/
 src-tauri/gen/android/**/.kotlin/
+
+# Local design references and coding-agent configuration.
+/design-system/
+/.agents/
+/.codex/
