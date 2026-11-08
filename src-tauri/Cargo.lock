@@ -2624,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "pulse_drop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "if-addrs",
  "serde",

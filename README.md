@@ -8,7 +8,7 @@ PulseDrop is a Windows and Android-first local network file transfer app built w
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.2.0**. See [automatic GitHub releases](docs/github-releases.md) for the one-time Android signing setup and the tag-based workflow that publishes `.deb`, `.apk`, and Windows `.exe` installers.
+The next release is **0.3.0**. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with the full [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -16,11 +16,14 @@ The next release is **0.2.0**. See [automatic GitHub releases](docs/github-relea
 - Start a receiver on any device and share its IP, port, and 6-digit pairing code.
 - Automatically discover active receivers on the LAN and select one to fill its IP and port.
 - Save received files into an app Inbox folder.
+- Follow live byte progress and speed on both the sending and receiving devices, with per-file transfer activity.
 - Open the Inbox from the app.
 - Local HTTP health check before sending, so bad IP/firewall/VPN problems fail clearly.
 - LAN IP detection that prefers Wi-Fi/Ethernet addresses over VPN and tunnel interfaces.
 
 ## Stack
+
+The interface uses a shared dark design system with persistent navigation, file queues, nearby receivers, and collapsed advanced networking controls. The original native app icon is retained. Local design reference files are excluded from Git.
 
 - Tauri 2 for desktop/mobile app shell.
 - Rust for the local receiver, upload handling, inbox management, device profile, and network interface selection.
@@ -289,7 +292,6 @@ PulseDrop tries to prefer Wi-Fi/Ethernet over VPN interfaces. If a VPN address s
 - Android App Bundle / Play Store distribution.
 - QR code pairing.
 - Transfer cancellation.
-- Per-file receive progress events.
 - Signed and notarized macOS releases.
 - iOS build.
 - Optional installer step for Windows firewall rule with user/admin consent.
