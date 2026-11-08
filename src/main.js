@@ -76,6 +76,7 @@ const els = {
   receiverStateDescription: document.querySelector("#receiver-state-description"),
   navReceiverIndicator: document.querySelector("#nav-receiver-indicator"),
   reduceMotion: document.querySelector("#reduce-motion"),
+  themeSelect: document.querySelector("#theme-select"),
   homeScreen: document.querySelector("#home-screen"),
   workflowScreen: document.querySelector("#workflow-screen"),
   homeSend: document.querySelector("#home-send"),
@@ -1330,6 +1331,7 @@ function bindEvents() {
     document.documentElement.classList.toggle("reduce-motion", els.reduceMotion.checked);
     try { localStorage.setItem("pulsedrop.reduceMotion", String(els.reduceMotion.checked)); } catch { /* Unavailable storage must not block preferences. */ }
   });
+  els.themeSelect.addEventListener("change", () => window.PulseDropTheme.setTheme(els.themeSelect.value));
   document.addEventListener("visibilitychange", updateDiscoveryActivity);
   window.addEventListener("pagehide", () => receiverDiscovery.stop());
   els.toggleReceiver.addEventListener("click", toggleReceiver);
@@ -1407,6 +1409,7 @@ const hotspotUI = mountHotspot({
 });
 
 bindEvents();
+els.themeSelect.value = window.PulseDropTheme.getTheme();
 document.querySelectorAll("[data-app-version]").forEach((element) => { element.textContent = `v${version}`; });
 try { els.reduceMotion.checked = localStorage.getItem("pulsedrop.reduceMotion") === "true"; } catch { /* Use the system motion preference when storage is unavailable. */ }
 document.documentElement.classList.toggle("reduce-motion", els.reduceMotion.checked);

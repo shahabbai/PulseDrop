@@ -23,6 +23,26 @@ class MainActivity : TauriActivity() {
   private var foreground = false
   private var discoveryLock: WifiManager.MulticastLock? = null
 
+  private fun savedTheme(): String = getSharedPreferences("pulsedrop.appearance", Context.MODE_PRIVATE)
+    .getString("theme", "dark") ?: "dark"
+
+  fun setAppTheme(theme: String) {
+    if (theme != "light" && theme != "dark") return
+    runOnUiThread {
+      getSharedPreferences("pulsedrop.appearance", Context.MODE_PRIVATE).edit().putString("theme", theme).apply()
+      applySystemBarTheme(theme)
+    }
+  }
+
+  private fun applySystemBarTheme(theme: String) {
+    val light = theme == "light"
+    val background = if (light) Color.rgb(246, 247, 251) else ContextCompat.getColor(this, R.color.pulsedrop_background)
+    val style = if (light) SystemBarStyle.light(Color.TRANSPARENT, Color.rgb(16, 18, 24))
+      else SystemBarStyle.dark(Color.TRANSPARENT)
+    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+    window.decorView.findViewById<View>(android.R.id.content).setBackgroundColor(background)
+  }
+
   fun setDiscoveryActive(active: Boolean) {
     runOnUiThread {
       discoveryRequested = active
@@ -65,15 +85,11 @@ class MainActivity : TauriActivity() {
   }
 
   private fun configureSystemBarInsets() {
-    enableEdgeToEdge(
-      statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-      navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
-    )
+    applySystemBarTheme(savedTheme())
 
     // Pad the stable parent, not the generated WebView or a particular HTML header.
     // This also covers landscape cutouts, gesture navigation, and older WebViews.
     val content = window.decorView.findViewById<View>(android.R.id.content)
-    content.setBackgroundColor(ContextCompat.getColor(this, R.color.pulsedrop_background))
     val baseLeft = content.paddingLeft
     val baseTop = content.paddingTop
     val baseRight = content.paddingRight
@@ -94,6 +110,7 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    webView.setBackgroundColor(if (savedTheme() == "light") Color.rgb(246, 247, 251) else Color.rgb(16, 18, 24))
     webView.addJavascriptInterface(PulseDropAndroidBridge(this), "PulseDropAndroid")
   }
 

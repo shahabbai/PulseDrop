@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Add Light and Dark themes in Settings and remember your choice on this device.
+
 ## 0.4.0
 
 ### Added

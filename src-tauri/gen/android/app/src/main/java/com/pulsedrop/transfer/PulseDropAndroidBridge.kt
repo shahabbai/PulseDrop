@@ -4,6 +4,7 @@ import android.webkit.JavascriptInterface
 import android.os.Build
 
 class PulseDropAndroidBridge(private val activity: MainActivity) {
+  @JavascriptInterface fun setTheme(theme: String) { activity.setAppTheme(theme) }
   @JavascriptInterface fun hotspotStatus(): String = activity.hotspot.status()
   @JavascriptInterface fun hotspotStart() { activity.hotspot.start() }
   @JavascriptInterface fun hotspotStop() { activity.hotspot.stop() }

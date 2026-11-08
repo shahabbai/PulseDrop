@@ -8,7 +8,7 @@ PulseDrop is a Windows and Android-first local file transfer app built with Taur
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.4.0**, adding receiver-hotspot transfers, nearby Wi-Fi discovery and QR connection. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with that version's [changelog](CHANGELOG.md).
+The next release is **0.4.1**, adding a saved Light/Dark theme choice in Settings. See [automatic GitHub releases](docs/github-releases.md) for the Android signing setup, manual commit commands, and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with that version's [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -21,12 +21,13 @@ The next release is **0.4.0**, adding receiver-hotspot transfers, nearby Wi-Fi d
 - Follow live byte progress and speed on both the sending and receiving devices, with per-file transfer activity.
 - Cancel from either device, stop the remaining sender queue, and remove incomplete files while preserving completed transfers. See [transfer cancellation](docs/transfer-cancellation.md).
 - Open the Inbox from the app.
+- Choose Light or Dark in **Settings → Appearance → Theme**. Your choice is saved on this device.
 - Local HTTP health check before sending, so bad IP/firewall/VPN problems fail clearly.
 - LAN IP detection that prefers Wi-Fi/Ethernet addresses over VPN and tunnel interfaces.
 
 ## Stack
 
-The interface uses a shared dark design system with persistent navigation, file queues, nearby receivers, and collapsed advanced networking controls. The original native app icon is retained. Local design reference files are excluded from Git.
+The interface uses shared Light and Dark themes with persistent navigation, file queues, nearby receivers, and collapsed advanced networking controls. The original native app icon is retained. Local design reference files are excluded from Git.
 
 - Tauri 2 for desktop/mobile app shell.
 - Rust for the local receiver, upload handling, inbox management, device profile, and network interface selection.
@@ -51,6 +52,7 @@ src/
   styles.css          App UI and animations
   main.js             Frontend behavior and transfer requests
   discovery.js        Discovery polling and view lifecycle
+  public/theme.js     Saved theme and native appearance, applied before first paint
 
 src-tauri/
   src/lib.rs          Tauri commands, receiver server, file saving, LAN IP selection

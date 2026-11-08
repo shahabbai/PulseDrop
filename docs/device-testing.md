@@ -2,6 +2,18 @@
 
 For transfers without a router or internet, use the [receiver hotspot setup and physical test checklist](hotspot-transfer.md). Local-network testing below remains applicable.
 
+## 0.4.1 theme testing
+
+Use a fresh 0.4.1 installer. Local builds produce `src-tauri/target/release/bundle/deb/PulseDrop_0.4.1_amd64.deb` and `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` (Android version `0.4.1`, code `4001`). The debug APK uses the development signing identity; GitHub Release signs its APK with the existing release key.
+
+1. Open **Settings → Appearance → Theme** and choose **Light**, then **Dark**. Check Home, Send, Receive and Settings in each theme.
+2. Close and reopen the app. Confirm the selected theme and selector value are restored. Dark is the default on a fresh install.
+3. On Android, check the clock/status icons and navigation bar in both themes, rotate the phone, and open/dismiss the keyboard. Keep the existing system-bar spacing.
+4. Queue files or start a large transfer, change the theme, and return to the transfer. Progress, cancellation and the queue should keep working.
+5. Check a narrow desktop window, keyboard navigation to the theme selector, larger system text, and **Reduce animations** in both themes.
+
+Local validation covers both palettes and responsive layouts in the native Linux app, persistence after reload/restart, keyboard selection, and an exact-byte transfer while switching themes. Android builds locally; physical phone system-bar checks and Windows/macOS UI checks remain device/CI validation.
+
 ## 0.4.0 release testing
 
 Use the fresh installers from the final 0.4.0 CI/release build to test this release. Its Android version is `0.4.0`, version code `4000`. Earlier local hotspot test APKs still report `0.3.1`; the `hotspot_multiplatform` APK includes Android discovery/QR controls, while the earlier `hotspot_quick_connect` APK has a Linux-only picker. A filename change does not update an APK’s internal version.
