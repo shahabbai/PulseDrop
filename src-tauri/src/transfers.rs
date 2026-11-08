@@ -1,15 +1,17 @@
 use crate::receive::Phase;
 use std::{
     collections::HashMap,
-    io,
-    net::{Shutdown, TcpStream},
+    io::{self, Read},
+    net::TcpStream,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
+const READ_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
 struct State {
     phase: Phase,
-    socket: Option<TcpStream>,
     finished: Option<Instant>,
 }
 
@@ -19,12 +21,11 @@ pub(crate) struct Control {
 }
 
 impl Control {
-    pub fn new(id: String, socket: Option<TcpStream>) -> Self {
+    pub fn new(id: String) -> Self {
         Self {
             id,
             state: Mutex::new(State {
                 phase: Phase::Receiving,
-                socket,
                 finished: None,
             }),
         }
@@ -49,15 +50,19 @@ impl Control {
         }
     }
 
+    pub fn reader<'a, R: Read>(&'a self, source: &'a mut R) -> CancellableReader<'a, R> {
+        CancellableReader {
+            source,
+            control: self,
+            last_byte: Instant::now(),
+        }
+    }
+
     pub fn cancel(&self) -> Phase {
         let mut state = self.state.lock().unwrap();
         if state.phase == Phase::Receiving {
             state.phase = Phase::Cancelled;
             state.finished = Some(Instant::now());
-            if let Some(socket) = state.socket.take() {
-                // Wake a blocked upload read, retaining the write half for its response.
-                let _ = socket.shutdown(Shutdown::Read);
-            }
         }
         state.phase.clone()
     }
@@ -68,7 +73,6 @@ impl Control {
             state.phase = Phase::Failed;
             state.finished = Some(Instant::now());
         }
-        state.socket.take();
         state.phase.clone()
     }
 
@@ -89,8 +93,48 @@ impl Control {
             Phase::Failed
         };
         state.finished = Some(Instant::now());
-        state.socket.take();
         result
+    }
+}
+
+pub(crate) struct CancellableReader<'a, R> {
+    source: &'a mut R,
+    control: &'a Control,
+    last_byte: Instant,
+}
+
+impl<R: Read> Read for CancellableReader<'_, R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        loop {
+            self.control.check()?;
+            let result = self.source.read(buffer);
+            self.control.check()?;
+            match result {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    if self.last_byte.elapsed() >= UPLOAD_IDLE_TIMEOUT {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "Upload timed out waiting for data",
+                        ));
+                    }
+                    // The socket's short timeout is a cancellation check, not
+                    // an upload failure. Keep the original 60-second idle limit.
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Ok(count) => {
+                    if count > 0 {
+                        self.last_byte = Instant::now();
+                    }
+                    return Ok(count);
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
 }
 
@@ -138,10 +182,12 @@ impl Transfers {
             }
             .into());
         }
-        let control = Arc::new(Control::new(
-            id.clone(),
-            Some(stream.try_clone().map_err(|error| error.to_string())?),
-        ));
+        // Configure the actual reader before it starts. Socket shutdown through
+        // a duplicated Windows handle must not be the cancellation mechanism.
+        stream
+            .set_read_timeout(Some(READ_POLL_INTERVAL))
+            .map_err(|error| error.to_string())?;
+        let control = Arc::new(Control::new(id.clone()));
         entries.insert(id, control.clone());
         Ok(control)
     }
@@ -160,7 +206,7 @@ impl Transfers {
         // A tombstone also covers cancel arriving before upload registration.
         entries
             .entry(id.into())
-            .or_insert_with(|| Arc::new(Control::new(id.into(), None)))
+            .or_insert_with(|| Arc::new(Control::new(id.into())))
             .cancel()
     }
 
@@ -175,8 +221,8 @@ impl Transfers {
 mod tests {
     use super::*;
     use std::{
-        io::{Read, Write},
-        net::TcpListener,
+        io::Write,
+        net::{Shutdown, TcpListener},
         sync::mpsc,
         thread,
     };
@@ -194,17 +240,47 @@ mod tests {
         client
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        let control = Control::new("blocked".into(), Some(server.try_clone().unwrap()));
+        server
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let registry = Transfers::default();
+        let control = registry.register("blocked".into(), &server).unwrap();
+        assert_eq!(server.read_timeout().unwrap(), Some(READ_POLL_INTERVAL));
         let mut reader = server.try_clone().unwrap();
         let (started_tx, started_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        struct ReadyReader<'a> {
+            stream: &'a mut TcpStream,
+            ready: Option<mpsc::Sender<()>>,
+        }
+        impl Read for ReadyReader<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if let Some(ready) = self.ready.take() {
+                    ready.send(()).unwrap();
+                }
+                self.stream.read(buffer)
+            }
+        }
+        let worker_control = control.clone();
         let worker = thread::spawn(move || {
-            started_tx.send(()).unwrap();
-            reader.read(&mut [0])
+            let mut source = ReadyReader {
+                stream: &mut reader,
+                ready: Some(started_tx),
+            };
+            let result = worker_control.reader(&mut source).read(&mut [0]);
+            let _ = done_tx.send(result);
         });
         started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert_eq!(control.cancel(), Phase::Cancelled);
-        let result = worker.join().unwrap();
-        assert!(result.is_err() || result.unwrap() == 0);
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|error| {
+                // Release the peer and fail without an unbounded join on regression.
+                let _ = client.shutdown(Shutdown::Both);
+                panic!("Cancellation did not finish a stalled read: {error}");
+            });
+        worker.join().unwrap();
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
         server.write_all(b"Cancelled").unwrap();
         let mut response = [0; 9];
         client.read_exact(&mut response).unwrap();
@@ -212,14 +288,95 @@ mod tests {
     }
 
     #[test]
+    fn reader_retries_both_platform_timeouts_and_resets_idle_deadline_on_data() {
+        struct PausedReader(usize);
+        impl Read for PausedReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.0 += 1;
+                match self.0 {
+                    1 => Err(io::ErrorKind::WouldBlock.into()),
+                    2 => Err(io::ErrorKind::TimedOut.into()),
+                    3 => Err(io::ErrorKind::Interrupted.into()),
+                    _ => {
+                        buffer[0] = 42;
+                        Ok(1)
+                    }
+                }
+            }
+        }
+        let control = Control::new("paused".into());
+        let mut source = PausedReader(0);
+        let mut reader = control.reader(&mut source);
+        reader.last_byte = Instant::now() - Duration::from_secs(20);
+        let resumed = Instant::now();
+        let mut buffer = [0];
+        assert_eq!(reader.read(&mut buffer).unwrap(), 1);
+        assert_eq!(buffer, [42]);
+        assert!(reader.last_byte >= resumed);
+        assert_eq!(reader.source.0, 4);
+        assert_eq!(control.phase(), Phase::Receiving);
+    }
+
+    #[test]
+    fn reader_preserves_idle_timeout_and_non_retryable_errors() {
+        struct ErrorReader(io::ErrorKind);
+        impl Read for ErrorReader {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(self.0.into())
+            }
+        }
+        let control = Control::new("idle".into());
+        for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut] {
+            let mut source = ErrorReader(kind);
+            let mut reader = control.reader(&mut source);
+            reader.last_byte = Instant::now() - UPLOAD_IDLE_TIMEOUT;
+            let error = reader.read(&mut [0]).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+            assert_eq!(error.to_string(), "Upload timed out waiting for data");
+        }
+        let mut source = ErrorReader(io::ErrorKind::ConnectionReset);
+        assert_eq!(
+            control
+                .reader(&mut source)
+                .read(&mut [0])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::ConnectionReset
+        );
+        assert_eq!(control.phase(), Phase::Receiving);
+    }
+
+    #[test]
+    fn cancellation_during_a_timed_read_is_reported_as_cancelled() {
+        struct CancelOnRead<'a>(&'a Control);
+        impl Read for CancelOnRead<'_> {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                self.0.cancel();
+                Err(io::ErrorKind::TimedOut.into())
+            }
+        }
+        let control = Control::new("cancel-pause".into());
+        let mut source = CancelOnRead(&control);
+        assert_eq!(
+            control
+                .reader(&mut source)
+                .read(&mut [0])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::ConnectionAborted
+        );
+        assert_eq!(control.phase(), Phase::Cancelled);
+    }
+
+    #[test]
     fn cancellation_and_commit_have_one_terminal_winner() {
-        let control = Control::new("cancel-first".into(), None);
+        let control = Control::new("cancel-first".into());
         control.cancel();
         assert!(control
             .commit(|| -> io::Result<()> { panic!("Cancelled upload must never commit") })
             .is_err());
         assert_eq!(control.fail(), Phase::Cancelled);
-        let control = Arc::new(Control::new("commit-first".into(), None));
+        let control = Arc::new(Control::new("commit-first".into()));
         let (started_tx, started_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
         let worker_control = control.clone();
@@ -247,7 +404,7 @@ mod tests {
         assert!(registry.register("early".into(), &server).is_err());
         let first = registry.register("first".into(), &server).unwrap();
         assert!(registry.register("first".into(), &server).is_err());
-        // Use a separate socket: shutting down a cloned handle affects its peers.
+        // Each simulated upload has its own connection.
         let (_other_client, other_server) = sockets();
         let second = registry.register("second".into(), &other_server).unwrap();
         registry.cancel("first");

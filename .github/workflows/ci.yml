@@ -60,9 +60,13 @@ jobs:
       - uses: ./.github/actions/setup-build
       - name: Build frontend for Rust tests
         run: npm run frontend:build
-      - name: Rust tests
+      - name: Compile Rust tests
         shell: bash
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib --no-run
+      - name: Rust tests
+        timeout-minutes: 5
+        shell: bash
+        run: cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib
       - name: Build installer
         shell: bash
         env:
@@ -91,8 +95,11 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Build frontend for Rust tests
         run: npm run frontend:build
+      - name: Compile Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib --no-run
       - name: Rust tests on macOS
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+        timeout-minutes: 5
+        run: cargo test --offline --locked --manifest-path src-tauri/Cargo.toml --lib
       - name: Build ad hoc signed universal DMG
         env:
           APPLE_SIGNING_IDENTITY: '-'

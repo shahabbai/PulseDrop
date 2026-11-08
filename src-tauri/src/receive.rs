@@ -175,17 +175,8 @@ fn upload_with_clock(
     let result = (|| -> io::Result<PathBuf> {
         control.check()?;
         let (pending, mut file) = PendingUpload::create(inbox, name, &progress.transfer_id)?;
-        struct CancellableReader<'a, R>(&'a mut R, &'a Control);
-        impl<R: Read> Read for CancellableReader<'_, R> {
-            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-                self.1.check()?;
-                let result = self.0.read(buffer);
-                self.1.check()?;
-                result
-            }
-        }
         let copied = copy_body(
-            &mut CancellableReader(source, control),
+            &mut control.reader(source),
             &mut file,
             prefix,
             size,
@@ -248,7 +239,7 @@ mod tests {
             name,
             size,
             prefix,
-            &Control::new(crate::discovery::instance_id(), None),
+            &Control::new(crate::discovery::instance_id()),
             notify,
         )
     }
@@ -268,7 +259,7 @@ mod tests {
             name,
             size,
             prefix,
-            &Control::new(crate::discovery::instance_id(), None),
+            &Control::new(crate::discovery::instance_id()),
             notify,
             clock,
         )
@@ -537,7 +528,7 @@ mod tests {
             }
         }
         let inbox = TestInbox::new();
-        let control = Control::new("cancel-body".into(), None);
+        let control = Control::new("cancel-body".into());
         let mut events = Vec::new();
         assert!(super::upload(
             &mut CancelSource {
@@ -568,7 +559,7 @@ mod tests {
     fn cancellation_before_start_and_after_last_byte_never_publishes_a_file() {
         for before_start in [true, false] {
             let inbox = TestInbox::new();
-            let control = Control::new("cancel-boundary".into(), None);
+            let control = Control::new("cancel-boundary".into());
             if before_start {
                 control.cancel();
             }

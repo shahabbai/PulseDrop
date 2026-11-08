@@ -11,7 +11,8 @@
 ### Fixed
 
 - Remove cancelled uploads' partial files and reserved destination names; preserve files that completed before cancellation.
-- Wake stalled incoming uploads immediately when cancellation is requested and handle cancellation racing with upload completion or connection errors.
+- Stop stalled incoming uploads promptly when cancellation is requested and handle cancellation racing with upload completion or connection errors.
+- Prevent Windows cancellation tests from hanging by checking cancellation during bounded socket reads, while preserving the upload idle timeout.
 - Preserve keyboard focus on incoming Cancel buttons while progress updates.
 - Settle HTTP upload errors correctly so sending controls become available for retry.
 
