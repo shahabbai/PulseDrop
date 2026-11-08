@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 mod discovery;
 mod network;
 mod receive;
+mod transfers;
 use network::*;
 
 struct DiscoveryState {
@@ -63,6 +64,7 @@ struct ReceiverState {
 }
 
 struct ReceiverRuntime {
+    transfers: std::sync::Arc<transfers::Transfers>,
     port: u16,
     code: String,
     inbox_dir: PathBuf,
@@ -174,6 +176,8 @@ fn start_receiver(
     let thread_code = code.clone();
     let thread_inbox = inbox_dir.clone();
     let thread_app = app.clone();
+    let transfers = std::sync::Arc::new(transfers::Transfers::default());
+    let thread_transfers = transfers.clone();
 
     let name: String = receiver_name
         .unwrap_or_else(device_name)
@@ -196,10 +200,18 @@ fn start_receiver(
     };
 
     thread::spawn(move || {
-        receiver_loop(listener, thread_app, thread_inbox, thread_code, thread_stop);
+        receiver_loop(
+            listener,
+            thread_app,
+            thread_inbox,
+            thread_code,
+            thread_stop,
+            thread_transfers,
+        );
     });
 
     let active = ReceiverRuntime {
+        transfers,
         port,
         code,
         inbox_dir,
@@ -222,8 +234,30 @@ fn stop_receiver(state: State<'_, ReceiverState>) -> Result<(), String> {
 
     if let Some(active) = runtime.take() {
         active.stop.store(true, Ordering::Relaxed);
+        active.transfers.cancel_all();
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_receive(
+    state: State<'_, ReceiverState>,
+    transfer_id: Option<String>,
+) -> Result<(), String> {
+    let runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "Receiver state is unavailable")?;
+    let active = runtime.as_ref().ok_or("Receiver is offline")?;
+    if let Some(id) = transfer_id {
+        if !transfers::valid_id(&id) {
+            return Err("Invalid transfer ID".into());
+        }
+        active.transfers.cancel(&id);
+    } else {
+        active.transfers.cancel_all();
+    }
     Ok(())
 }
 
@@ -576,6 +610,7 @@ fn receiver_loop(
     inbox_dir: PathBuf,
     code: String,
     stop: std::sync::Arc<AtomicBool>,
+    transfers: std::sync::Arc<transfers::Transfers>,
 ) {
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
@@ -583,8 +618,9 @@ fn receiver_loop(
                 let app = app.clone();
                 let inbox_dir = inbox_dir.clone();
                 let code = code.clone();
+                let transfers = transfers.clone();
                 thread::spawn(move || {
-                    if let Err(error) = handle_stream(stream, &app, &inbox_dir, &code) {
+                    if let Err(error) = handle_stream(stream, &app, &inbox_dir, &code, &transfers) {
                         eprintln!("Receiver error: {error}");
                     }
                 });
@@ -605,6 +641,7 @@ fn handle_stream(
     app: &AppHandle,
     inbox_dir: &Path,
     expected_code: &str,
+    transfers: &transfers::Transfers,
 ) -> Result<(), String> {
     stream
         .set_nonblocking(false)
@@ -639,7 +676,9 @@ fn handle_stream(
         return Ok(());
     }
 
-    if request.method != "POST" || !request.path.starts_with("/upload") {
+    let control_request = (request.method == "GET" && request.path == "/transfer")
+        || (request.method == "POST" && request.path == "/cancel");
+    if !control_request && (request.method != "POST" || !request.path.starts_with("/upload")) {
         write_response(&mut stream, 404, "Not Found", "Not found", "text/plain")?;
         return Ok(());
     }
@@ -656,6 +695,30 @@ fn handle_stream(
         return Ok(());
     }
 
+    if control_request {
+        let id = request
+            .query
+            .get("transfer_id")
+            .map(String::as_str)
+            .unwrap_or_default();
+        if !transfers::valid_id(id) {
+            return write_response(
+                &mut stream,
+                400,
+                "Bad Request",
+                "Invalid transfer ID",
+                "text/plain",
+            );
+        }
+        let phase = if request.path == "/cancel" {
+            Some(transfers.cancel(id))
+        } else {
+            transfers.status(id)
+        };
+        let body = serde_json::json!({"phase": phase}).to_string();
+        return write_response(&mut stream, 200, "OK", &body, "application/json");
+    }
+
     let file_name = request
         .query
         .get("name")
@@ -669,16 +732,45 @@ fn handle_stream(
         .and_then(|value| value.parse::<u64>().ok())
         .ok_or_else(|| "Missing content length".to_string())?;
 
-    let saved = receive::upload(
+    let id = request
+        .query
+        .get("transfer_id")
+        .cloned()
+        .unwrap_or_else(discovery::instance_id);
+    if !transfers::valid_id(&id) {
+        return write_response(
+            &mut stream,
+            400,
+            "Bad Request",
+            "Invalid transfer ID",
+            "text/plain",
+        );
+    }
+    let control = match transfers.register(id, &stream) {
+        Ok(control) => control,
+        Err(error) => return write_response(&mut stream, 409, "Conflict", &error, "text/plain"),
+    };
+    let saved = match receive::upload(
         &mut stream,
         inbox_dir,
         &file_name,
         content_length,
         &request.body_start,
+        &control,
         |progress| {
             let _ = app.emit("file-receive-progress", progress);
         },
-    )?;
+    ) {
+        Ok(saved) => saved,
+        Err(error) => {
+            let (status, reason) = if control.phase() == receive::Phase::Cancelled {
+                (409, "Conflict")
+            } else {
+                (500, "Internal Server Error")
+            };
+            return write_response(&mut stream, status, reason, &error, "text/plain");
+        }
+    };
     let _ = app.emit(
         "file-received",
         ReceivedFile {
@@ -768,6 +860,8 @@ fn write_response(
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
          Access-Control-Allow-Headers: content-type\r\n\
+         Access-Control-Expose-Headers: X-PulseDrop-Cancellation\r\n\
+         X-PulseDrop-Cancellation: 1\r\n\
          Content-Type: {content_type}; charset=utf-8\r\n\
          Content-Length: {}\r\n\
          Connection: close\r\n\r\n{}",
@@ -1028,6 +1122,7 @@ pub fn run() {
             discover_receivers,
             start_receiver,
             stop_receiver,
+            cancel_receive,
             open_inbox,
             windows_diagnostics,
             fix_windows_network_profile,

@@ -235,8 +235,14 @@ input[aria-invalid="true"] { border-color: var(--color-danger) !important; }
 #peer-code::placeholder { font-family: var(--font-sans); letter-spacing: 0; }
 .destination-footer { padding-block: var(--space-5); }
 .destination-footer > p { margin-bottom: var(--space-3); color: var(--color-muted); font-size: 10px; }
-.destination-footer .primary-action { width: 100%; }
+.destination-footer .primary-action, .destination-footer .cancel-action { width: 100%; }
 .transfer-monitor { padding: var(--space-4) var(--space-5); }
+.transfer-actions { display: flex; justify-content: flex-end; }
+.transfer-actions:has(button:not([hidden])) { margin-top: var(--space-3); }
+.cancel-action { min-height: 44px; padding-inline: var(--space-4); }
+.activity-meter .cancel-action { margin-top: var(--space-2); }
+.transfer-monitor.is-cancelled .transfer-fill, .activity-row.cancelled .progress-fill { background: var(--color-muted); }
+.activity-row.cancelled > .icon { color: var(--color-muted); }
 .transfer-monitor-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); font-size: 12px; }
 .transfer-monitor-top strong { overflow-wrap: anywhere; min-width: 0; }
 .transfer-monitor-top > span { color: var(--color-accent-text); flex: 0 0 auto; }

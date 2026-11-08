@@ -65,3 +65,25 @@ test("empty files finish at 100 percent without invalid numeric values", () => {
   assert.equal(done.summary.received, 0);
   assert.equal(done.summary.speed, 0);
 });
+
+test("cancellation keeps partial progress, never counts a file, and rejects late completion", () => {
+  const model = createReceiveProgress();
+  model.accept({ ...update, received: 250 });
+  const cancelled = model.accept({ ...update, received: 300, phase: "cancelled" });
+  assert.equal(cancelled.item.kind, "cancelled");
+  assert.equal(cancelled.summary.progress, 30);
+  assert.equal(cancelled.summary.speed, 0);
+  assert.equal(cancelled.completed, false);
+  assert.equal(model.accept({ ...update, phase: "completed" }), null);
+  assert.equal(model.accept({ ...update, received: 500 }), null);
+});
+
+test("cancelling one incoming file leaves the other file's progress active", () => {
+  const model = createReceiveProgress();
+  model.accept(update);
+  model.accept({ ...update, transfer_id: "two", received: 400 });
+  const result = model.accept({ ...update, phase: "cancelled" });
+  assert.equal(result.summary.activeCount, 1);
+  assert.equal(result.summary.received, 400);
+  assert.equal(result.summary.phase, "receiving");
+});

@@ -1,3 +1,4 @@
+use crate::transfers::Control;
 use serde::Serialize;
 use std::{
     fs::{self, File, OpenOptions},
@@ -14,6 +15,7 @@ pub(crate) enum Phase {
     Receiving,
     Completed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -133,9 +135,19 @@ pub(crate) fn upload(
     name: &str,
     size: u64,
     prefix: &[u8],
+    control: &Control,
     notify: impl FnMut(Progress),
 ) -> Result<SavedUpload, String> {
-    upload_with_clock(source, inbox, name, size, prefix, notify, Instant::now)
+    upload_with_clock(
+        source,
+        inbox,
+        name,
+        size,
+        prefix,
+        control,
+        notify,
+        Instant::now,
+    )
 }
 
 fn upload_with_clock(
@@ -144,13 +156,14 @@ fn upload_with_clock(
     name: &str,
     size: u64,
     prefix: &[u8],
+    control: &Control,
     mut notify: impl FnMut(Progress),
     mut clock: impl FnMut() -> Instant,
 ) -> Result<SavedUpload, String> {
     let started = clock();
     let mut last_update = started;
     let mut progress = Progress {
-        transfer_id: super::discovery::instance_id(),
+        transfer_id: control.id.clone(),
         name: name.to_string(),
         size,
         received: 0,
@@ -160,20 +173,37 @@ fn upload_with_clock(
     };
     notify(progress.clone());
     let result = (|| -> io::Result<PathBuf> {
+        control.check()?;
         let (pending, mut file) = PendingUpload::create(inbox, name, &progress.transfer_id)?;
-        let copied = copy_body(source, &mut file, prefix, size, |received| {
-            progress.received = received;
-            let now = clock();
-            progress.speed = received as f64 / now.duration_since(started).as_secs_f64().max(0.001);
-            if now.duration_since(last_update) >= PROGRESS_INTERVAL {
-                notify(progress.clone());
-                last_update = now;
+        struct CancellableReader<'a, R>(&'a mut R, &'a Control);
+        impl<R: Read> Read for CancellableReader<'_, R> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.1.check()?;
+                let result = self.0.read(buffer);
+                self.1.check()?;
+                result
             }
-        });
+        }
+        let copied = copy_body(
+            &mut CancellableReader(source, control),
+            &mut file,
+            prefix,
+            size,
+            |received| {
+                progress.received = received;
+                let now = clock();
+                progress.speed =
+                    received as f64 / now.duration_since(started).as_secs_f64().max(0.001);
+                if now.duration_since(last_update) >= PROGRESS_INTERVAL {
+                    notify(progress.clone());
+                    last_update = now;
+                }
+            },
+        );
         // Windows requires the handle to close before rename or error cleanup.
         drop(file);
         copied?;
-        pending.commit()
+        control.commit(|| pending.commit())
     })();
     progress.speed = 0.0;
     match result {
@@ -186,8 +216,12 @@ fn upload_with_clock(
             })
         }
         Err(error) => {
-            let message = format!("Could not receive {name}: {error}");
-            progress.phase = Phase::Failed;
+            progress.phase = control.fail();
+            let message = if progress.phase == Phase::Cancelled {
+                "Transfer cancelled".into()
+            } else {
+                format!("Could not receive {name}: {error}")
+            };
             progress.error = Some(message.clone());
             notify(progress);
             Err(message)
@@ -199,6 +233,46 @@ fn upload_with_clock(
 mod tests {
     use super::*;
     use std::{cell::Cell, io::Cursor};
+
+    fn upload(
+        source: &mut impl Read,
+        inbox: &Path,
+        name: &str,
+        size: u64,
+        prefix: &[u8],
+        notify: impl FnMut(Progress),
+    ) -> Result<SavedUpload, String> {
+        super::upload(
+            source,
+            inbox,
+            name,
+            size,
+            prefix,
+            &Control::new(crate::discovery::instance_id(), None),
+            notify,
+        )
+    }
+
+    fn upload_with_clock(
+        source: &mut impl Read,
+        inbox: &Path,
+        name: &str,
+        size: u64,
+        prefix: &[u8],
+        notify: impl FnMut(Progress),
+        clock: impl FnMut() -> Instant,
+    ) -> Result<SavedUpload, String> {
+        super::upload_with_clock(
+            source,
+            inbox,
+            name,
+            size,
+            prefix,
+            &Control::new(crate::discovery::instance_id(), None),
+            notify,
+            clock,
+        )
+    }
 
     struct TestInbox(PathBuf);
     impl TestInbox {
@@ -444,5 +518,84 @@ mod tests {
         .unwrap();
         assert_eq!(bytes, [9, 9, 9]);
         assert_eq!(counts, [1, 2, 3]);
+    }
+
+    #[test]
+    fn cancelled_upload_removes_staging_and_reservation_without_completion() {
+        struct CancelSource<'a> {
+            reads: usize,
+            control: &'a Control,
+        }
+        impl Read for CancelSource<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.reads += 1;
+                if self.reads == 2 {
+                    self.control.cancel();
+                }
+                buffer[0] = 7;
+                Ok(1)
+            }
+        }
+        let inbox = TestInbox::new();
+        let control = Control::new("cancel-body".into(), None);
+        let mut events = Vec::new();
+        assert!(super::upload(
+            &mut CancelSource {
+                reads: 0,
+                control: &control
+            },
+            &inbox.0,
+            "test.bin",
+            10,
+            b"head",
+            &control,
+            |event| events.push(event)
+        )
+        .is_err());
+        assert_eq!(events.last().unwrap().phase, Phase::Cancelled);
+        assert_eq!(events.last().unwrap().received, 5);
+        assert!(!events.iter().any(|event| event.phase == Phase::Completed));
+        assert!(!inbox.0.join("test.bin").exists());
+        assert_eq!(
+            fs::read_dir(inbox.0.join(".pulsedrop-transfers"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn cancellation_before_start_and_after_last_byte_never_publishes_a_file() {
+        for before_start in [true, false] {
+            let inbox = TestInbox::new();
+            let control = Control::new("cancel-boundary".into(), None);
+            if before_start {
+                control.cancel();
+            }
+            let start = Instant::now();
+            let mut tick = 0;
+            let mut phases = Vec::new();
+            let result = super::upload_with_clock(
+                &mut io::empty(),
+                &inbox.0,
+                "test.bin",
+                3,
+                b"abc",
+                &control,
+                |event| {
+                    if event.phase == Phase::Receiving && event.received == 3 {
+                        control.cancel();
+                    }
+                    phases.push(event.phase);
+                },
+                || {
+                    tick += 1;
+                    start + Duration::from_millis(tick * 120)
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(phases.last(), Some(&Phase::Cancelled));
+            assert!(!inbox.0.join("test.bin").exists());
+        }
     }
 }

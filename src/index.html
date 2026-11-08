@@ -166,7 +166,7 @@
                     </div>
                   </details>
                   <div class="pairing-field field"><label for="peer-code">Pairing code</label><input id="peer-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6-digit code" aria-describedby="peer-code-help peer-code-error"/><small id="peer-code-help">Enter the code shown on the receiving device.</small><small class="field-error" id="peer-code-error" hidden></small></div>
-                  <div class="destination-footer"><p id="send-hint">Add files and choose a receiver to get started.</p><button class="primary-action" type="button" id="send-files" disabled><svg class="icon" aria-hidden="true"><use href="#icon-send"/></svg><span>Send files</span></button></div>
+                  <div class="destination-footer"><p id="send-hint">Add files and choose a receiver to get started.</p><button class="primary-action" type="button" id="send-files" disabled><svg class="icon" aria-hidden="true"><use href="#icon-send"/></svg><span>Send files</span></button><button class="secondary-action cancel-action" type="button" id="cancel-send" hidden>Cancel transfer</button></div>
                 </aside>
               </div>
               <p class="page-footnote"><svg class="icon" aria-hidden="true"><use href="#icon-info"/></svg> Keep both devices on the same Wi-Fi or local network.</p>
@@ -179,6 +179,7 @@
                 <div class="transfer-monitor-top"><strong id="receive-name">Incoming file</strong><span id="receive-percent" class="mono">0%</span></div>
                 <div class="transfer-track" id="receive-progress" role="progressbar" aria-label="Incoming transfer" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="transfer-fill" id="receive-fill"></div></div>
                 <div class="transfer-stats"><span id="receive-bytes">0 B of 0 B</span><span id="receive-speed">0 B/s</span></div>
+                <div class="transfer-actions"><button class="secondary-action cancel-action" type="button" id="cancel-receive" hidden>Cancel file</button></div>
                 <p id="receive-announcement" class="sr-only" role="status" aria-live="polite"></p>
               </section>
               <section class="panel receiver-session" id="receiver-session" aria-labelledby="receiver-state-title">

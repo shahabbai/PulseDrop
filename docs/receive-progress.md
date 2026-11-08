@@ -4,13 +4,13 @@ The Receive screen shows live incoming bytes, percentage, and average speed. Eac
 
 ## Events and completion
 
-The native HTTP receiver emits `file-receive-progress` after authentication and parsing the declared content length. Updates contain `transfer_id`, `name`, `size`, `received`, `speed` (bytes per second), `phase` (`receiving`, `completed`, or `failed`), and an optional `error`.
+The native HTTP receiver emits `file-receive-progress` after authentication and parsing the declared content length. Updates contain `transfer_id`, `name`, `size`, `received`, `speed` (bytes per second), `phase` (`receiving`, `completed`, `failed`, or `cancelled`), and an optional `error`.
 
 The stream emits an initial zero-byte update, throttled intermediate updates approximately every 120 ms, and an unthrottled terminal update. Received byte counts include body bytes already buffered while reading HTTP headers. Intermediate UI percentages stay below 100%; completion requires the entire body to be written and committed to the final Inbox path.
 
 The existing `file-received` event remains, with an additional `transfer_id` for correlation. Its name, size, and path fields remain available. The frontend correlates both event types by ID, updates the same activity row, and increments its received-file count once. Late or duplicate updates cannot turn a completed transfer back into an active transfer. Event history is bounded while active uploads remain visible.
 
-These are local Tauri UI events. The HTTP endpoints, request format, pairing code, and response bodies are unchanged. An older sending app can upload to an updated receiving app and trigger receiving progress.
+These are local Tauri UI events. Version 0.3.1 also adds optional transfer IDs and authenticated cancellation/status endpoints, retaining the existing health/upload bodies and pairing flow. An older sending app can still upload to an updated receiving app and trigger receiving progress. See [transfer cancellation](transfer-cancellation.md) for negotiation, queue behavior, and compatibility.
 
 ## Incomplete uploads
 

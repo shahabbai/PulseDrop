@@ -3,7 +3,7 @@ function nonnegative(value) {
 }
 
 function normalize(update) {
-  if (!update || !update.transfer_id || !["receiving", "completed", "failed"].includes(update.phase)) return null;
+  if (!update || !update.transfer_id || !["receiving", "completed", "failed", "cancelled"].includes(update.phase)) return null;
   const size = nonnegative(update.size);
   const received = update.phase === "completed" ? size : Math.min(size, nonnegative(update.received));
   return {
