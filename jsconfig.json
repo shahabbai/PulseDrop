@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": []
+  },
+  "include": [
+    "src/native-types.d.ts",
+    "src/public/*.js",
+    "src/sender.js",
+    "src/settings-ui.js",
+    "src/transfer-format.js"
+  ]
+}

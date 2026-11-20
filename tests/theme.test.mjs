@@ -4,17 +4,18 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const bootstrap = readFileSync(new URL("../src/public/theme.js", import.meta.url), "utf8");
+const adapter = readFileSync(new URL("../src/public/native-platform.js", import.meta.url), "utf8");
 
 function boot({ saved = null, storageUnavailable = false, native = {} } = {}) {
   const values = new Map(saved === null ? [] : [["pulsedrop.theme", saved]]);
   const root = { dataset: {} };
   const meta = { setAttribute(name, value) { this[name] = value; } };
-  const window = { ...native };
+  const window = { navigator: { userAgent: "" }, ...native };
   const localStorage = {
     getItem(key) { if (storageUnavailable) throw new Error("Storage blocked"); return values.get(key) ?? null; },
     setItem(key, value) { if (storageUnavailable) throw new Error("Storage blocked"); values.set(key, value); }
   };
-  runInNewContext(bootstrap, {
+  runInNewContext(`${adapter}\n${bootstrap}`, {
     window, localStorage,
     document: { documentElement: root, querySelector: () => meta }
   });

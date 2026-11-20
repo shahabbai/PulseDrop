@@ -2,17 +2,15 @@ import { createReceiverDiscovery } from "./discovery.js";
 import { validateReceiver } from "./ui.js";
 import { createReceiveProgress } from "./receive-progress.js";
 import { readFileBody } from "./file-body.js";
+import { createSender } from "./sender.js";
+import { formatBytes, formatSpeed } from "./transfer-format.js";
+import { mountSettings } from "./settings-ui.js";
 import { mountHotspot } from "./hotspot-ui.js";
 import { version } from "../package.json";
 
-const tauri = window.__TAURI__;
-const invoke = tauri && tauri.core && tauri.core.invoke;
-const listen = tauri && tauri.event && tauri.event.listen;
-const opener = tauri && tauri.opener;
-
+const native = window.PulseDropNative;
+const { invoke, android: isAndroidRuntime } = native;
 const bootScreen = document.querySelector("#boot-screen");
-const isAndroidRuntime = /Android/i.test(window.navigator.userAgent || "");
-const receiverCheckTimeoutMs = 7000;
 
 function hideBootScreen() {
   if (bootScreen) {
@@ -32,7 +30,6 @@ const state = {
 
 state.discoveredReceivers = [];
 state.selectedReceiver = null;
-state.sending = false;
 state.discoveryScanning = false;
 state.validationErrors = {};
 state.sendError = "";
@@ -40,7 +37,7 @@ state.scrollPositions = {};
 const queuedFileIds = new WeakMap();
 const queuedFileStates = new WeakMap();
 const incomingProgress = createReceiveProgress();
-let sendSession = null;
+let restoreSendFocus = false;
 const receiveCancellation = new Set();
 
 function createId() {
@@ -75,8 +72,6 @@ const els = {
   receiverStateTitle: document.querySelector("#receiver-state-title"),
   receiverStateDescription: document.querySelector("#receiver-state-description"),
   navReceiverIndicator: document.querySelector("#nav-receiver-indicator"),
-  reduceMotion: document.querySelector("#reduce-motion"),
-  themeSelect: document.querySelector("#theme-select"),
   homeScreen: document.querySelector("#home-screen"),
   workflowScreen: document.querySelector("#workflow-screen"),
   homeSend: document.querySelector("#home-send"),
@@ -112,18 +107,6 @@ const els = {
   transferFill: document.querySelector("#transfer-fill"),
   transferBytes: document.querySelector("#transfer-bytes"),
   transferSpeed: document.querySelector("#transfer-speed"),
-  settingsRefresh: document.querySelector("#settings-refresh"),
-  settingsAppPath: document.querySelector("#settings-app-path"),
-  networkCard: document.querySelector("#network-card"),
-  networkStatus: document.querySelector("#network-status"),
-  networkMessage: document.querySelector("#network-message"),
-  networkDetail: document.querySelector("#network-detail"),
-  fixNetwork: document.querySelector("#fix-network"),
-  firewallCard: document.querySelector("#firewall-card"),
-  firewallStatus: document.querySelector("#firewall-status"),
-  firewallMessage: document.querySelector("#firewall-message"),
-  firewallDetail: document.querySelector("#firewall-detail"),
-  fixFirewall: document.querySelector("#fix-firewall"),
   toggleReceiver: document.querySelector("#toggle-receiver"),
   sessionIp: document.querySelector("#session-ip"),
   sessionPort: document.querySelector("#session-port"),
@@ -145,7 +128,7 @@ const receiverDiscovery = createReceiverDiscovery({
   onChange({ receivers, scanning, error }) {
     state.discoveredReceivers = receivers;
     state.discoveryScanning = scanning;
-    els.refreshReceivers.disabled = scanning || state.sending;
+    els.refreshReceivers.disabled = scanning || sender.busy();
     els.scanIndicator.hidden = !scanning;
     els.discoveryStatus.dataset.error = String(Boolean(error));
     els.receiverList.setAttribute("aria-busy", String(scanning));
@@ -173,7 +156,7 @@ function renderDiscoveredReceivers() {
     button.type = "button";
     button.className = "receiver-choice";
     button.dataset.receiverId = peer.id;
-    button.disabled = state.sending;
+    button.disabled = sender.busy();
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("class", "icon");
     icon.setAttribute("aria-hidden", "true");
@@ -194,7 +177,7 @@ function renderDiscoveredReceivers() {
     action.textContent = selected ? "Selected" : "Select";
     button.append(icon, info, action);
     button.addEventListener("click", () => {
-      if (state.sending) return;
+      if (sender.busy()) return;
       if (!selected) els.peerCode.value = "";
       state.selectedReceiver = peer;
       els.peerIp.value = peer.ip;
@@ -220,26 +203,7 @@ function updateDiscoveryActivity() {
     els.discoveryStatus.textContent = "Run inside PulseDrop to discover receivers on your LAN.";
     els.refreshReceivers.disabled = true;
   }
-  const bridge = window.PulseDropAndroid;
-  if (bridge && typeof bridge.setDiscoveryActive === "function") {
-    try {
-      bridge.setDiscoveryActive(!document.hidden && (browsing || Boolean(state.receiver)));
-    } catch (error) {
-      console.warn("Could not enable Android LAN discovery", error);
-    }
-  }
-}
-
-function formatBytes(bytes) {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / 1024 ** index;
-  return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
-}
-
-function formatSpeed(bytesPerSecond) {
-  return formatBytes(Math.max(0, bytesPerSecond || 0)) + "/s";
+  native.setDiscoveryActive(!document.hidden && (browsing || Boolean(state.receiver)));
 }
 
 function clampPercent(value) {
@@ -348,7 +312,7 @@ function setView(mode, options = {}) {
     writeViewHistory(nextView, Boolean(options.replaceHistory));
   }
 
-  if (nextView === "settings") loadWindowsDiagnostics();
+  if (nextView === "settings") settingsUI.refresh();
   els.mainContent.scrollTop = state.scrollPositions[nextView] || 0;
   if (options.focus !== false) {
     const heading = document.querySelector(isHome ? "#home-title" : `#${nextView}-title`);
@@ -357,24 +321,26 @@ function setView(mode, options = {}) {
 }
 
 function syncSendControls() {
+  const sending = sender.busy();
+  const cancelling = sender.cancelling();
   const focusWasSend = document.activeElement === els.sendFiles;
   const focusWasCancel = document.activeElement === els.cancelSend;
-  els.cancelSend.hidden = !state.sending;
-  els.sendFiles.hidden = state.sending;
-  els.cancelSend.disabled = Boolean(sendSession?.cancelRequested);
-  els.cancelSend.textContent = sendSession?.cancelRequested ? "Cancelling…" : "Cancel transfer";
-  els.sendFiles.disabled = state.sending || state.files.length === 0 || hotspotUI.busy();
-  if (state.sending && focusWasSend && !els.cancelSend.disabled) els.cancelSend.focus({ preventScroll: true });
-  if (!state.sending && focusWasCancel) els.sendFiles.focus({ preventScroll: true });
-  els.clearFiles.disabled = state.sending || state.files.length === 0;
-  els.fileInput.disabled = state.sending;
-  for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.disabled = state.sending;
-  els.refreshReceivers.disabled = !invoke || state.sending || state.discoveryScanning;
-  els.sendFiles.setAttribute("aria-busy", String(state.sending));
-  els.sendFiles.querySelector("span").textContent = state.sending ? "Sending…" : "Send files";
-  els.sendHint.textContent = state.sending ? "Keep both devices open until the transfer finishes."
+  els.cancelSend.hidden = !sending;
+  els.sendFiles.hidden = sending;
+  els.cancelSend.disabled = cancelling;
+  els.cancelSend.textContent = cancelling ? "Cancelling…" : "Cancel transfer";
+  els.sendFiles.disabled = sending || state.files.length === 0 || hotspotUI.busy();
+  if (sending && focusWasSend && !cancelling) els.cancelSend.focus({ preventScroll: true });
+  if (!sending && focusWasCancel) els.sendFiles.focus({ preventScroll: true });
+  els.clearFiles.disabled = sending || state.files.length === 0;
+  els.fileInput.disabled = sending;
+  for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.disabled = sending;
+  els.refreshReceivers.disabled = !invoke || sending || state.discoveryScanning;
+  els.sendFiles.setAttribute("aria-busy", String(sending));
+  els.sendFiles.querySelector("span").textContent = sending ? "Sending…" : "Send files";
+  els.sendHint.textContent = sending ? "Keep both devices open until the transfer finishes."
     : state.files.length ? "Choose a receiver and enter its pairing code." : "Add files and choose a receiver to get started.";
-  document.querySelectorAll(".remove-file, .receiver-choice").forEach((button) => { button.disabled = state.sending; });
+  document.querySelectorAll(".remove-file, .receiver-choice").forEach((button) => { button.disabled = sending; });
   hotspotUI.refresh();
 }
 
@@ -419,7 +385,7 @@ function renderFiles() {
         <strong title="${escapeAttr(file.name)}">${escapeHtml(file.name)}</strong>
         <span>${formatBytes(file.size)}<span class="queue-file-state">Queued</span></span>
       </div>
-      <button class="remove-file" type="button" title="Remove ${escapeAttr(file.name)}" aria-label="Remove ${escapeAttr(file.name)}" ${state.sending ? "disabled" : ""}>
+      <button class="remove-file" type="button" title="Remove ${escapeAttr(file.name)}" aria-label="Remove ${escapeAttr(file.name)}" ${sender.busy() ? "disabled" : ""}>
         <svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg>
       </button>
     `;
@@ -635,7 +601,7 @@ function renderActivities() {
 }
 
 function addFiles(fileList) {
-  if (state.sending) return;
+  if (sender.busy()) return;
   const incoming = Array.from(fileList || []);
   const existing = new Set(state.files.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
   for (const file of incoming) {
@@ -662,9 +628,7 @@ async function loadDeviceProfile() {
     if (state.receiver) state.receiver = await invoke("start_receiver", { receiverName: null });
     state.selectedIp = profile.primary_ip || (state.networkIps[0] && state.networkIps[0].ip) || null;
     els.statusDot.classList.toggle("online", Boolean(state.selectedIp));
-    const bridge = window.PulseDropAndroid;
-    els.deviceName.textContent = bridge && typeof bridge.deviceName === "function"
-      ? bridge.deviceName() : profile.name;
+    els.deviceName.textContent = native.deviceName() || profile.name;
     els.devicePlatform.textContent = `${profile.platform} ${profile.arch}`;
     els.localIp.textContent = state.selectedIp || "No network";
     els.localIp.title = state.networkIps.map((address) => address.label || address.ip).join("\n");
@@ -693,9 +657,7 @@ async function toggleReceiver() {
       showToast("Receiver stopped");
     } else {
       const preferredIp = state.selectedIp;
-      const bridge = window.PulseDropAndroid;
-      const receiverName = bridge && typeof bridge.deviceName === "function" ? bridge.deviceName() : null;
-      state.receiver = await invoke("start_receiver", { receiverName });
+      state.receiver = await invoke("start_receiver", { receiverName: native.deviceName() });
       state.selectedIp = preferredIp || state.receiver.ip_address || selectedReceiverIp();
       showToast("Receiver is online");
     }
@@ -716,290 +678,13 @@ async function openInbox() {
     return;
   }
 
-  const androidBridge = window.PulseDropAndroid;
-  const looksLikeAndroidPath = String(state.receiver.inbox_dir || "").startsWith("/storage/emulated/");
-
   try {
-    if (androidBridge && typeof androidBridge.openInbox === "function") {
-      androidBridge.openInbox();
-      showToast("Opening Android Downloads");
-      return;
-    }
-
-    if (isAndroidRuntime || looksLikeAndroidPath) {
-      showToast("Open Downloads, then PulseDrop/Inbox");
-      return;
-    }
-
-    if (invoke) {
-      await invoke("open_inbox");
-    } else if (opener && opener.openPath) {
-      await opener.openPath(state.receiver.inbox_dir);
-    }
+    const result = await native.openInbox(state.receiver.inbox_dir);
+    if (result === "downloads") showToast("Opening Android Downloads");
+    if (result === "manual") showToast("Open Downloads, then PulseDrop/Inbox");
   } catch (error) {
     showToast(String(error));
   }
-}
-
-function receiverUrl(endpoint, path) {
-  const url = new URL(`http://${endpoint.ip}:${endpoint.port}${path}`);
-  url.searchParams.set("code", endpoint.code);
-  return url;
-}
-
-function receiverUnavailableMessage(endpoint) {
-  return `Could not reach ${endpoint.ip}:${endpoint.port}. Keep the receiver open, check its address, and connect both devices to the same local network. If it stays unavailable, check its firewall or VPN settings.`;
-}
-
-function cancelledError(session) {
-  const error = new Error(session.reason || "Transfer cancelled");
-  error.name = "TransferCancelledError";
-  return error;
-}
-
-function checkCancellation(session) {
-  if (session.cancelRequested || session.controller.signal.aborted) throw cancelledError(session);
-}
-
-async function transferRequest(endpoint, path, id, method = "GET", signal) {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  signal?.addEventListener("abort", abort, { once: true });
-  if (signal?.aborted) controller.abort();
-  const timer = setTimeout(abort, 1800);
-  const url = receiverUrl(endpoint, path);
-  url.searchParams.set("transfer_id", id);
-  try {
-    const response = await fetch(url, { method, cache: "no-store", signal: controller.signal });
-    const payload = response.ok ? await response.json() : null;
-    return { ok: response.ok, phase: payload?.phase };
-  }
-  finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
-}
-
-async function cancelSending(byReceiver = false) {
-  const session = sendSession;
-  if (!session || session.cancelRequested) return;
-  session.cancelRequested = true;
-  session.restoreSendFocus = document.activeElement === els.cancelSend;
-  session.reason = byReceiver ? "Cancelled by receiving device" : "Transfer cancelled";
-  syncSendControls();
-  session.cancelPromise = (async () => {
-    try {
-      if (!byReceiver && session.supportsCancellation && session.activeId) {
-        const id = session.activeId;
-        const response = await transferRequest(session.endpoint, "/cancel", id, "POST");
-        if (response.ok && response.phase === "completed") session.savedTransferId = id;
-      }
-    } catch { /* A broken connection still needs a local abort. */ }
-    finally { session.controller.abort(); }
-  })();
-  await session.cancelPromise;
-}
-
-async function checkReceiver(endpoint, session) {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  session.controller.signal.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(abort, receiverCheckTimeoutMs);
-  try {
-    checkCancellation(session);
-    const response = await fetch(receiverUrl(endpoint, "/health"), { cache: "no-store", signal: controller.signal });
-    checkCancellation(session);
-    if (response.status === 404 || response.status === 405) return;
-    if (!response.ok) throw new Error(await response.text() || `Receiver returned HTTP ${response.status}`);
-    session.supportsCancellation = response.headers.get("X-PulseDrop-Cancellation") === "1";
-  } catch (error) {
-    checkCancellation(session);
-    if (error.name === "AbortError" || error instanceof TypeError) throw new Error(receiverUnavailableMessage(endpoint));
-    throw error;
-  } finally { clearTimeout(timeout); session.controller.signal.removeEventListener("abort", abort); }
-}
-
-function uploadTimeoutMs(fileSize) {
-  const slowNetworkBudget = Math.ceil((fileSize || 0) / (128 * 1024)) * 1000;
-  return Math.min(30 * 60 * 1000, Math.max(2 * 60 * 1000, slowNetworkBudget + 30 * 1000));
-}
-
-async function uploadBodyForFile(file, activityId, session) {
-  checkCancellation(session);
-  if (!isAndroidRuntime) return file;
-  updateActivity(activityId, { label: "Preparing file", progress: 0 });
-  try { return await readFileBody(file, session.controller.signal); }
-  catch (error) { checkCancellation(session); throw error; }
-}
-
-async function sendFile(file, endpoint, activityId, progressContext, session) {
-  const uploadBody = await uploadBodyForFile(file, activityId, session);
-  checkCancellation(session);
-
-  return new Promise((resolve, reject) => {
-    const url = receiverUrl(endpoint, "/upload");
-    const transferId = session.activeId;
-    url.searchParams.set("name", file.name);
-    url.searchParams.set("transfer_id", transferId);
-
-    const xhr = new XMLHttpRequest();
-    const startedAt = performance.now();
-    let settled = false;
-    let checkingFailure = false;
-    let pollTimer;
-    const pollLifetime = new AbortController();
-    const signal = session.controller.signal;
-    const abort = () => xhr.abort();
-    const cleanup = () => { clearTimeout(pollTimer); pollLifetime.abort(); signal.removeEventListener("abort", abort); };
-    async function poll() {
-      if (settled || signal.aborted || !session.supportsCancellation) return;
-      try {
-        const response = await transferRequest(endpoint, "/transfer", transferId, "GET", pollLifetime.signal);
-        const status = response.ok ? response : null;
-        if (!settled && session.activeId === transferId && status?.phase === "cancelled") await cancelSending(true);
-      } catch { /* The upload itself reports connection errors. */ }
-      if (!settled && !signal.aborted) pollTimer = setTimeout(poll, 350);
-    }
-    let latestLoaded = 0;
-    let lastLoaded = 0;
-    let lastTime = startedAt;
-    let lastSpeed = 0;
-
-    function speedFor(loaded) {
-      const now = performance.now();
-      const elapsed = Math.max((now - lastTime) / 1000, 0.001);
-      if (elapsed >= 0.15 || loaded >= file.size) {
-        const delta = Math.max(0, loaded - lastLoaded);
-        const instant = delta / elapsed;
-        lastSpeed = lastSpeed ? lastSpeed * 0.65 + instant * 0.35 : instant;
-        lastLoaded = loaded;
-        lastTime = now;
-      }
-      const average = loaded / Math.max((now - startedAt) / 1000, 0.001);
-      return lastSpeed || average;
-    }
-
-    function publishProgress(loaded, total, forcedPercent) {
-      if (settled) return;
-      session.loaded = (progressContext.completedBytes || 0) + loaded;
-      latestLoaded = loaded;
-      const size = total || file.size || 0;
-      const completedBytes = progressContext.completedBytes || 0;
-      const totalBytes = progressContext.totalBytes || size;
-      const totalLoaded = Math.min(totalBytes || completedBytes + loaded, completedBytes + loaded);
-      const filePercent = size ? (loaded / size) * 100 : 0;
-      const fallbackPercent = forcedPercent ?? filePercent;
-      const overallPercent = totalBytes ? (totalLoaded / totalBytes) * 100 : fallbackPercent;
-      const speed = speedFor(loaded);
-      const label = formatBytes(loaded) + " of " + formatBytes(size) + " - " + formatSpeed(speed);
-
-      updateActivity(activityId, {
-        progress: Math.min(99, filePercent || overallPercent),
-        label,
-        speed
-      });
-      updateTransferMonitor({
-        name: file.name,
-        loaded,
-        total: size,
-        totalLoaded,
-        totalBytes,
-        percent: Math.min(99, overallPercent),
-        speed,
-        active: true
-      });
-    }
-
-    function fail(message, cancelled = session.cancelRequested) {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      const kind = cancelled ? "cancelled" : "failed";
-      updateActivity(activityId, {
-        label: message,
-        kind,
-        speed: 0
-      });
-      updateTransferMonitor({
-        name: file.name,
-        loaded: latestLoaded,
-        total: file.size,
-        totalLoaded: (progressContext.completedBytes || 0) + latestLoaded,
-        totalBytes: progressContext.totalBytes || file.size,
-        percent: progressContext.totalBytes ? (((progressContext.completedBytes || 0) + latestLoaded) / progressContext.totalBytes) * 100 : 0,
-        speed: 0,
-        kind,
-        active: false
-      });
-      reject(cancelled ? cancelledError(session) : new Error(message));
-    }
-
-    async function failAfterStatusCheck(message) {
-      if (settled || checkingFailure) return;
-      checkingFailure = true;
-      // A receiver cancellation may close the upload before its next status
-      // poll. Resolve that race before deciding to continue the sender queue.
-      try {
-        if (session.supportsCancellation) {
-          const response = await transferRequest(endpoint, "/transfer", transferId, "GET", pollLifetime.signal);
-          const status = response.ok ? response : null;
-          if (!settled && status?.phase === "cancelled") {
-            await cancelSending(true);
-          }
-        }
-      } catch { /* Report the original error when status cannot be reached. */ }
-      fail(session.cancelRequested ? session.reason : message);
-    }
-
-    xhr.open("POST", url.toString(), true);
-    xhr.timeout = uploadTimeoutMs(file.size);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-    xhr.upload.onprogress = (event) => {
-      const total = event.lengthComputable ? event.total : file.size;
-      publishProgress(event.loaded, total);
-    };
-    function succeed() {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      const totalBytes = progressContext.totalBytes || file.size;
-      const totalLoaded = Math.min(totalBytes, (progressContext.completedBytes || 0) + file.size);
-      updateActivity(activityId, {
-        progress: 100,
-        label: "Sent",
-        kind: "sent",
-        speed: 0
-      });
-      updateTransferMonitor({
-        name: file.name,
-        loaded: file.size,
-        total: file.size,
-        totalLoaded,
-        totalBytes,
-        percent: totalBytes ? (totalLoaded / totalBytes) * 100 : 100,
-        speed: 0,
-        active: true
-      });
-      resolve();
-    }
-
-    xhr.onload = () => {
-      if (settled) return;
-      if (xhr.status >= 200 && xhr.status < 300) {
-        succeed();
-      } else {
-        const message = xhr.responseText || "Upload failed with HTTP " + xhr.status;
-        const cancelled = xhr.status === 409 && /cancelled/i.test(message);
-        if (cancelled && !session.cancelRequested) { session.cancelRequested = true; session.reason = "Cancelled by receiving device"; session.controller.abort(); }
-        if (cancelled || session.cancelRequested) fail(session.reason || message, true);
-        else failAfterStatusCheck(message);
-      }
-    };
-    xhr.onerror = () => failAfterStatusCheck(receiverUnavailableMessage(endpoint));
-    xhr.onabort = () => session.savedTransferId === transferId ? succeed() : fail(session.reason || "Transfer cancelled", true);
-    xhr.ontimeout = () => failAfterStatusCheck("Transfer timed out before the receiver answered");
-    publishProgress(0, file.size, progressContext.totalBytes ? ((progressContext.completedBytes || 0) / progressContext.totalBytes) * 100 : 0);
-    signal.addEventListener("abort", abort, { once: true });
-    xhr.send(uploadBody);
-    if (session.supportsCancellation) pollTimer = setTimeout(poll, 350);
-  });
 }
 
 function renderSendErrors(focus = false) {
@@ -1040,71 +725,28 @@ function renderSendErrors(focus = false) {
 }
 
 async function sendSelectedFiles() {
-  if (hotspotUI.busy()) return;
-  if (state.sending) return;
+  if (hotspotUI.busy() || sender.busy()) return;
   const endpoint = { ip: els.peerIp.value.trim(), port: Number(els.peerPort.value.trim()), code: els.peerCode.value.trim() };
   state.validationErrors = validateReceiver(endpoint);
   state.sendError = "";
   renderSendErrors(true);
   if (Object.keys(state.validationErrors).length || !state.files.length) return;
-  const queue = Array.from(state.files);
-  const totalBytes = queue.reduce((sum, file) => sum + file.size, 0);
-  const session = { controller: new AbortController(), endpoint, cancelRequested: false, activeId: null, loaded: 0 };
-  sendSession = session;
-  state.sending = true;
-  syncSendControls();
-  let sent = 0, failed = 0, completedBytes = 0;
-  updateTransferMonitor({ name: "Checking receiver", totalBytes, percent: 0, active: true });
-  try {
-    await checkReceiver(endpoint, session);
+
+  const queue = [...state.files];
+  restoreSendFocus = false;
+  const result = await sender.send(queue, endpoint);
+  if (!result) return;
+  const { cancelled, complete, sent, failed, error } = result;
+  if (cancelled) {
     for (const file of queue) {
-      checkCancellation(session);
-      const activityId = createId();
-      session.activeId = createId();
-      session.loaded = completedBytes;
-      addActivity({ id: activityId, file, name: file.name, label: "Sending", kind: "sending", direction: "send", progress: 0, speed: 0 });
-      updateTransferMonitor({ name: file.name, totalLoaded: completedBytes, totalBytes, percent: totalBytes ? completedBytes / totalBytes * 100 : 0, speed: 0, active: true });
-      try {
-        await sendFile(file, endpoint, activityId, { completedBytes, totalBytes }, session);
-        sent += 1;
-        completedBytes += file.size;
-      } catch (error) {
-        const cancelled = error.name === "TransferCancelledError" || session.cancelRequested;
-        updateActivity(activityId, { kind: cancelled ? "cancelled" : "failed", label: error.message, speed: 0 });
-        if (cancelled) throw error;
-        failed += 1;
-        state.sendError = error.message;
-      } finally { session.activeId = null; }
+      const previous = queuedFileStates.get(file);
+      if (!previous || previous.kind !== "sent") updateQueuedFile(file, { ...previous, kind: "cancelled" });
     }
-  } catch (error) {
-    if (error.name !== "TransferCancelledError" && !session.cancelRequested) {
-      failed += 1;
-      state.sendError = String(error.message || error);
-    }
-  } finally {
-    if (session.cancelPromise) await session.cancelPromise;
-    session.controller.abort();
-    const cancelled = session.cancelRequested && sent < queue.length;
-    if (cancelled) {
-      for (const file of queue) {
-        const previous = queuedFileStates.get(file);
-        if (!previous || previous.kind !== "sent") updateQueuedFile(file, { ...previous, kind: "cancelled" });
-      }
-    }
-    state.sending = false;
-    sendSession = null;
-    syncSendControls();
-    renderSendErrors(Boolean(state.sendError));
-    const complete = sent === queue.length;
-    updateTransferMonitor({
-      name: complete ? "Transfer complete" : cancelled ? session.reason || "Transfer cancelled" : "Transfer failed",
-      totalLoaded: complete ? totalBytes : Math.min(totalBytes, session.loaded || completedBytes), totalBytes,
-      percent: complete ? 100 : Math.min(99, totalBytes ? (session.loaded || completedBytes) / totalBytes * 100 : 0),
-      speed: 0, kind: complete ? "complete" : cancelled ? "cancelled" : "failed", active: false
-    });
-    showToast(complete ? `${sent} ${sent === 1 ? "file" : "files"} sent` : cancelled ? "Transfer cancelled. Completed files were kept." : state.sendError || `${failed} files failed`);
-    if (session.restoreSendFocus && state.activeView === "send") els.sendFiles.focus({ preventScroll: true });
   }
+  state.sendError = error;
+  renderSendErrors(Boolean(state.sendError));
+  showToast(complete ? `${sent} ${sent === 1 ? "file" : "files"} sent` : cancelled ? "Transfer cancelled. Completed files were kept." : state.sendError || `${failed} files failed`);
+  if (restoreSendFocus && state.activeView === "send") els.sendFiles.focus({ preventScroll: true });
 }
 
 async function copyText(text, label) {
@@ -1142,134 +784,8 @@ function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "&#096;");
 }
 
-function statusLabel(status) {
-  switch ((status || "unknown").toLowerCase()) {
-    case "ok":
-      return "Good";
-    case "warn":
-      return "Needs fix";
-    case "unsupported":
-      return "Not applicable";
-    default:
-      return "Unknown";
-  }
-}
-
-function renderDiagnostic(card, statusEl, messageEl, detailEl, fixButton, item) {
-  if (!card) return;
-  const diagnostic = item || {};
-  const status = (diagnostic.status || "unknown").toLowerCase();
-  card.dataset.status = status;
-  statusEl.textContent = statusLabel(status);
-  messageEl.textContent = diagnostic.message || "Could not read this check.";
-  detailEl.textContent = diagnostic.detail || diagnostic.title || "No details available";
-  fixButton.disabled = !diagnostic.can_fix;
-}
-
-function renderWindowsDiagnostics(diagnostics) {
-  const data = diagnostics || {};
-  if (els.settingsAppPath) {
-    els.settingsAppPath.textContent = data.app_path || "Installed path unavailable on this platform";
-    els.settingsAppPath.title = els.settingsAppPath.textContent;
-  }
-  renderDiagnostic(els.networkCard, els.networkStatus, els.networkMessage, els.networkDetail, els.fixNetwork, data.network);
-  renderDiagnostic(els.firewallCard, els.firewallStatus, els.firewallMessage, els.firewallDetail, els.fixFirewall, data.firewall);
-}
-
-function renderDiagnosticsLoading() {
-  renderWindowsDiagnostics({
-    is_windows: true,
-    app_path: "Checking...",
-    network: {
-      status: "unknown",
-      message: "Checking Windows network mode...",
-      detail: "Waiting for diagnostics",
-      can_fix: false
-    },
-    firewall: {
-      status: "unknown",
-      message: "Checking inbound access for PulseDrop...",
-      detail: "Waiting for diagnostics",
-      can_fix: false
-    }
-  });
-}
-
-function renderDiagnosticsUnavailable(message) {
-  renderWindowsDiagnostics({
-    is_windows: false,
-    app_path: "Windows receiver only",
-    network: {
-      status: "unsupported",
-      message,
-      detail: "Open Settings on the Windows PC app to change Public or Private mode.",
-      can_fix: false
-    },
-    firewall: {
-      status: "unsupported",
-      message,
-      detail: "Open Settings on the Windows PC app to add PulseDrop to Windows Firewall.",
-      can_fix: false
-    }
-  });
-}
-
-async function loadWindowsDiagnostics() {
-  if (!els.settingsPanel) return;
-  renderDiagnosticsLoading();
-
-  if (!invoke) {
-    renderDiagnosticsUnavailable("Run inside PulseDrop to check Windows settings.");
-    return;
-  }
-
-  try {
-    const diagnostics = await invoke("windows_diagnostics");
-    renderWindowsDiagnostics(diagnostics);
-  } catch (error) {
-    renderWindowsDiagnostics({
-      is_windows: true,
-      app_path: "Diagnostics failed",
-      network: {
-        status: "unknown",
-        message: "PulseDrop could not check the network profile.",
-        detail: String(error.message || error),
-        can_fix: false
-      },
-      firewall: {
-        status: "unknown",
-        message: "PulseDrop could not check Windows Firewall.",
-        detail: String(error.message || error),
-        can_fix: false
-      }
-    });
-  }
-}
-
-async function runWindowsFix(command, button) {
-  if (!invoke) {
-    showToast("Run inside PulseDrop to apply this fix");
-    return;
-  }
-
-  const previousLabel = button.textContent;
-  button.textContent = "Working";
-  setBusy(button, true);
-  showToast("Windows may ask for permission to apply this fix");
-
-  try {
-    await invoke(command);
-    showToast("Fix finished. Refreshing checks...");
-    await loadWindowsDiagnostics();
-  } catch (error) {
-    showToast(String(error.message || error));
-  } finally {
-    button.textContent = previousLabel;
-    setBusy(button, false);
-  }
-}
 function bindEvents() {
-  els.cancelSend.addEventListener("click", () => cancelSending());
+  els.cancelSend.addEventListener("click", () => sender.cancel());
   els.cancelReceive.addEventListener("click", () => cancelIncoming());
   document.querySelector(".skip-link").addEventListener("click", (event) => {
     event.preventDefault();
@@ -1325,11 +841,6 @@ function bindEvents() {
       renderSendErrors();
     });
   }
-  els.reduceMotion.addEventListener("change", () => {
-    document.documentElement.classList.toggle("reduce-motion", els.reduceMotion.checked);
-    try { localStorage.setItem("pulsedrop.reduceMotion", String(els.reduceMotion.checked)); } catch { /* Unavailable storage must not block preferences. */ }
-  });
-  els.themeSelect.addEventListener("change", () => window.PulseDropTheme.setTheme(els.themeSelect.value));
   document.addEventListener("visibilitychange", updateDiscoveryActivity);
   window.addEventListener("pagehide", () => receiverDiscovery.stop());
   els.toggleReceiver.addEventListener("click", toggleReceiver);
@@ -1337,9 +848,6 @@ function bindEvents() {
   els.copyIp.addEventListener("click", () => copyText(els.sessionIp.textContent, "IP"));
   els.copyPort.addEventListener("click", () => copyText(els.sessionPort.textContent, "Port"));
   els.copyCode.addEventListener("click", () => copyText(els.sessionCode.textContent, "Code"));
-  if (els.settingsRefresh) els.settingsRefresh.addEventListener("click", loadWindowsDiagnostics);
-  if (els.fixNetwork) els.fixNetwork.addEventListener("click", () => runWindowsFix("fix_windows_network_profile", els.fixNetwork));
-  if (els.fixFirewall) els.fixFirewall.addEventListener("click", () => runWindowsFix("fix_windows_firewall", els.fixFirewall));
 
   ["dragenter", "dragover"].forEach((name) => {
     els.dropZone.addEventListener(name, (event) => {
@@ -1358,25 +866,24 @@ function bindEvents() {
   els.dropZone.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
 }
 
-async function bindTauriEvents() {
-  if (!listen) return;
+const sender = createSender({
+  createId,
+  prepareBody: isAndroidRuntime ? readFileBody : undefined,
+  addActivity,
+  updateActivity,
+  updateTransferMonitor,
+  onStateChange() {
+    if (sender.cancelling() && document.activeElement === els.cancelSend) restoreSendFocus = true;
+    syncSendControls();
+  }
+});
 
-  await listen("file-receive-progress", (event) => handleReceiveProgress(event.payload));
-  await listen("file-received", (event) => {
-    const payload = event.payload;
-    handleReceiveProgress({
-      ...payload,
-      transfer_id: payload.transfer_id || createId(),
-      phase: "completed",
-      received: payload.size
-    });
-  });
-}
+const settingsUI = mountSettings({ root: els.settingsPanel, invoke, showToast });
 
 const hotspotUI = mountHotspot({
   invoke,
-  bridge: window.PulseDropAndroid,
-  canChange: () => !state.sending && !state.activities.some((activity) => activity.kind === "receiving"),
+  bridge: native.hotspotBridge,
+  canChange: () => !sender.busy() && !state.activities.some((activity) => activity.kind === "receiving"),
   copy: copyText,
   connectionInfo: () => state.receiver ? { ip: selectedReceiverIp(), port: state.receiver.port, code: state.receiver.code } : null,
   connected: ({ ip, port, code }) => {
@@ -1397,9 +904,7 @@ const hotspotUI = mountHotspot({
     renderDiscoveredReceivers();
   },
   ensureReceiver: async (address) => {
-    const bridge = window.PulseDropAndroid;
-    const receiverName = bridge?.deviceName?.() || null;
-    state.receiver = await invoke("start_receiver", { receiverName });
+    state.receiver = await invoke("start_receiver", { receiverName: native.deviceName() });
     await loadDeviceProfile();
     if (address && state.networkIps.some((candidate) => candidate.ip === address)) state.selectedIp = address;
     renderReceiver();
@@ -1407,17 +912,18 @@ const hotspotUI = mountHotspot({
 });
 
 bindEvents();
-els.themeSelect.value = window.PulseDropTheme.getTheme();
 document.querySelectorAll("[data-app-version]").forEach((element) => { element.textContent = `v${version}`; });
-try { els.reduceMotion.checked = localStorage.getItem("pulsedrop.reduceMotion") === "true"; } catch { /* Use the system motion preference when storage is unavailable. */ }
-document.documentElement.classList.toggle("reduce-motion", els.reduceMotion.checked);
 setView(viewFromLocation(), { replaceHistory: true, focus: false });
 renderFiles();
 renderReceiver();
 renderActivities();
 hideBootScreen();
 loadDeviceProfile();
-bindTauriEvents();
+let stopReceiveEvents = native.subscribeReceiver(handleReceiveProgress, createId);
+window.addEventListener("pagehide", () => stopReceiveEvents());
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) stopReceiveEvents = native.subscribeReceiver(handleReceiveProgress, createId);
+});
 
 
 

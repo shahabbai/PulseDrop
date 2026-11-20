@@ -8,7 +8,7 @@ PulseDrop is a Windows and Android-first local file transfer app built with Taur
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.6.0**, with a Claymorphism redesign across Home, Send, Receive, and Settings in Light and Dark. See [automatic GitHub releases](docs/github-releases.md) for the commit and tag commands that build the Linux DEB, Android APK, Windows EXE, and macOS DMG with the [release notes](CHANGELOG.md).
+The next release is **0.6.1**, with a frontend refactor, desktop live reload, and additional transfer regression tests. See [automatic GitHub releases](docs/github-releases.md) for the commit and tag commands that build the Linux DEB, Android APK, Windows EXE, and macOS DMG with the [release notes](CHANGELOG.md).
 
 ## Features
 
@@ -50,9 +50,12 @@ The interface uses shared Light and Dark themes with persistent navigation, file
 src/
   index.html          Frontend markup
   styles.css          App UI and animations
-  main.js             Frontend behavior and transfer requests
+  main.js             Navigation, file queue, and transfer rendering
   discovery.js        Discovery polling and view lifecycle
-  public/theme.js     Saved theme and native appearance, applied before first paint
+  sender.js           Outgoing transfers, progress, and cancellation
+  settings-ui.js      Preferences and Windows diagnostics
+  public/native-platform.js  Tauri commands, native events, and Android bridge access
+  public/theme.js      Saved theme applied before first paint
 
 src-tauri/
   src/lib.rs          Tauri commands, receiver server, file saving, LAN IP selection
@@ -108,6 +111,8 @@ npm install
 npm run dev
 ```
 
+On desktop this starts Tauri with Vite live reload on `127.0.0.1:1420`. Android and release builds continue loading their bundled frontend assets.
+
 ## Build And Test On Ubuntu 26.04
 
 For this workspace, project-local Rust, Java, Linux development libraries, and Android SDK tools are available in the ignored `.build-tools/` directory. Enable them in each new terminal:
@@ -117,7 +122,7 @@ source scripts/local-build-env.sh
 npm run linux:build
 ```
 
-The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.6.0_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
+The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.6.1_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
 
 On another Ubuntu machine, install the [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux), Rust, and Node.js before building; `.build-tools/` is local and is not committed. See [device testing instructions](docs/device-testing.md) for the Ubuntu/Android test builds and a transfer checklist.
 
@@ -205,11 +210,13 @@ Discovery uses IPv4 UDP port `53613`; file transfers continue to use HTTP, norma
 ### Automated Checks
 
 ```bash
+npm run typecheck
 npm test
 npm run frontend:build
-cd src-tauri
-cargo test
+cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
 ```
+
+On Linux, build the desktop app, then run `npm run test:webview` with Python 3.9+, `tauri-driver` and `WebKitWebDriver` on `PATH` and a graphical session available. The test uses a temporary app profile and covers theme persistence, nearby receiver selection, file selection, transfer, and cancellation. Close any active PulseDrop receivers first so the test can use UDP discovery port `53613`.
 
 To check the receiver manually, open this in a browser from the other device:
 

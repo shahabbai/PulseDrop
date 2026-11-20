@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- Separate transfer handling, Settings, and native platform calls into dedicated frontend modules.
+- Clean up receiver event subscriptions when the app view closes and allow retry after an upload fails to start.
+- Add desktop live reload, JavaScript type checks in CI, and repeatable Linux WebView tests.
+
 ## 0.6.0
 
 - Give Home, Send, Receive, and Settings a Claymorphism redesign with rounded panels, tactile controls, and coordinated Light and Dark themes.

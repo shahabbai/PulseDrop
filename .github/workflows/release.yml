@@ -37,6 +37,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: node scripts/release-notes.mjs "$RELEASE_VERSION" > /dev/null
+      - run: npm run typecheck
       - run: npm test
       - run: npm run frontend:build
 

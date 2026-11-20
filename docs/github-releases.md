@@ -1,8 +1,8 @@
 # Automatic GitHub releases
 
-Use **v0.6.0** for the Claymorphism redesign. Leave existing published tags unchanged.
+Use **v0.6.1** for the frontend refactor after the v0.6.0 redesign.
 
-The application manifests and lockfiles are prepared as 0.6.0. Run the commands below to commit and push the changes, wait for CI, and then push the tag. No commit, tag, or GitHub publication is performed by preparing these files.
+The application manifests and lockfiles are prepared as 0.6.1. Run the commands below to commit and push the changes, wait for CI, and then push the tag. No commit, tag, or GitHub publication is performed by preparing these files.
 
 ## What happens automatically
 
@@ -13,25 +13,25 @@ flowchart LR
     B --> D[Windows tests and EXE]
     B --> E[Android debug APK]
     B --> M[macOS tests and universal test DMG]
-    F[Push v0.6.0 tag] --> G[Validate tag, changelog, and tests]
+    F[Push v0.6.1 tag] --> G[Validate tag, changelog, and tests]
     G --> H[Build DEB, EXE, release APK, universal DMG]
     H --> I[Sign and verify APK]
     I --> J[Collect installers and SHA256SUMS]
     J --> K[Upload to draft, then publish release]
 ```
 
-`.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It checks all version files, runs JavaScript and desktop Rust tests, and builds Linux and Windows installers, an Android debug APK, and a universal macOS test DMG. Its artifacts are available on the workflow run for seven days. CI requires no signing secrets and never publishes a release.
+`.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. It checks all version files, type-checks JavaScript, runs JavaScript and desktop Rust tests, and builds Linux and Windows installers, an Android debug APK, and a universal macOS test DMG. Its artifacts are available on the workflow run for seven days. CI requires no signing secrets and never publishes a release.
 
-`.github/workflows/release.yml` runs when you push a stable tag such as `v0.6.0`. The tag must match the versions in `package.json`, both lockfiles, `Cargo.toml`, and `tauri.conf.json`, and `CHANGELOG.md` must have a non-empty entry for that version. It tests and builds Linux, Windows, macOS, and Android, signs the Android release APK, then creates a GitHub Release only after all release builds succeed. Assets are uploaded to a temporary draft, which the workflow publishes automatically after upload completes.
+`.github/workflows/release.yml` runs when you push a stable tag such as `v0.6.1`. The tag must match the versions in `package.json`, both lockfiles, `Cargo.toml`, and `tauri.conf.json`, and `CHANGELOG.md` must have a non-empty entry for that version. It tests and builds Linux, Windows, macOS, and Android, signs the Android release APK, then creates a GitHub Release only after all release builds succeed. Assets are uploaded to a temporary draft, which the workflow publishes automatically after upload completes.
 
-The Release page body contains **only the tagged version’s section** from `CHANGELOG.md`, extracted by `scripts/release-notes.mjs` and passed through GitHub CLI’s `--notes-file`. For `v0.6.0`, it contains only the two redesign bullets. The 0.5.0 and earlier entries stay in the repository and do not appear in that release’s description. Missing, empty, or duplicate version headings fail validation. Draft retries use the same tagged section. Preview the body with `node scripts/release-notes.mjs 0.6.0`. See the [GitHub CLI release documentation](https://cli.github.com/manual/gh_release_create).
+The Release page body contains **only the tagged version’s section** from `CHANGELOG.md`, extracted by `scripts/release-notes.mjs` and passed through GitHub CLI’s `--notes-file`. For `v0.6.1`, it contains the three frontend refactor entries. The 0.6.0 and earlier entries stay in the repository and do not appear in that release’s description. Missing, empty, or duplicate version headings fail validation. Draft retries use the same tagged section. Preview the body with `node scripts/release-notes.mjs 0.6.1`. See the [GitHub CLI release documentation](https://cli.github.com/manual/gh_release_create).
 
 | Release asset | Architecture / platform |
 | --- | --- |
-| `PulseDrop_0.6.0_amd64.deb` | Linux x86-64, built on Ubuntu 24.04 |
-| `PulseDrop_0.6.0_x64-setup.exe` | Windows x64 NSIS installer |
-| `PulseDrop_0.6.0_android_arm64.apk` | Android ARM64 release APK, API 24+ |
-| `PulseDrop_0.6.0_universal.dmg` | macOS Apple Silicon and Intel, experimental/ad hoc signed |
+| `PulseDrop_0.6.1_amd64.deb` | Linux x86-64, built on Ubuntu 24.04 |
+| `PulseDrop_0.6.1_x64-setup.exe` | Windows x64 NSIS installer |
+| `PulseDrop_0.6.1_android_arm64.apk` | Android ARM64 release APK, API 24+ |
+| `PulseDrop_0.6.1_universal.dmg` | macOS Apple Silicon and Intel, experimental/ad hoc signed |
 | `SHA256SUMS` | SHA-256 checksums for all four installers |
 
 The Linux build uses Ubuntu 24.04 as a baseline for compatibility with newer Ubuntu releases, including your Ubuntu 26.04 machine. The Windows job runs natively on `windows-2022`; it produces an `.exe` installer, rather than a standalone executable. The Windows installer is currently unsigned, so Windows may show an unknown-publisher prompt. Windows certificate signing can be added separately.
@@ -98,9 +98,9 @@ Open that file locally, select/copy all its contents, and update the secret unde
 
 No personal access token is needed. The final publishing job requests `contents: write` for GitHub's automatically supplied `GITHUB_TOKEN`; other jobs use read access. If repository or organization policy disables Actions or restricts the referenced actions/token permissions, adjust that policy under **Settings → Actions → General**.
 
-## 3. Commit 0.6.0 manually
+## 3. Commit 0.6.1 manually
 
-Run these commands in Bash from the repository root on `main`. The version bump and short changelog are already applied. Commit the shared interface, matching Android colors, version files, and updated release notes together.
+Run these commands in Bash from the repository root on `main`. The version bump and short changelog are already applied. Commit the frontend modules, development and CI configuration, tests, and release files together.
 
 Review existing staged files first. The explicit file lists below exclude `design-system/`, `.agents/`, `.codex/`, `.build-tools/`, artifacts, generated assets and signing files. These local paths are already ignored; do not use `git add .` for this release.
 
@@ -108,60 +108,66 @@ Review existing staged files first. The explicit file lists below exclude `desig
 cd /home/shahab/PulseDrop
 git status --short
 git diff --cached --name-only
-npm run version:check -- v0.6.0
+npm run version:check -- v0.6.1
+npm run typecheck
 npm test
 npm run frontend:build
-node scripts/release-notes.mjs 0.6.0
+node scripts/release-notes.mjs 0.6.1
 ```
 
-### UI and release files
+### Frontend and release files
 
 ```bash
-git add -- package.json package-lock.json \
-  src/index.html src/main.js src/styles.css src/public/theme.js tests/theme.test.mjs \
+git add -- \
+  .github/workflows/ci.yml .github/workflows/release.yml \
+  CHANGELOG.md README.md docs/github-releases.md \
+  jsconfig.json package.json package-lock.json vite.config.js \
+  src/index.html src/main.js src/native-types.d.ts \
+  src/public/native-platform.js src/public/theme.js \
+  src/sender.js src/settings-ui.js src/transfer-format.js \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json \
-  src-tauri/gen/android/app/src/main/java/com/pulsedrop/transfer/MainActivity.kt \
-  src-tauri/gen/android/app/src/main/res/values/colors.xml \
-  CHANGELOG.md README.md docs/device-testing.md docs/github-releases.md
+  src-tauri/tauri.desktop-dev.conf.json \
+  tests/native-platform.test.mjs tests/sender.test.mjs tests/theme.test.mjs \
+  tests/webview/smoke.py
 git diff --cached --stat
 git diff --cached --check
-git commit -m "feat: redesign PulseDrop with claymorphism for 0.6.0"
+git commit -m "refactor: reorganize PulseDrop frontend for 0.6.1"
 git push origin main
 ```
 
-Check CI for the commit you pushed and use the [0.6.0 device checklist](device-testing.md#060-interface-testing) with the generated installers.
+Check CI for the commit you pushed. Use the [interface testing checklist](device-testing.md#060-interface-testing) with the 0.6.1 installers to check the existing transfer and theme flows after the refactor.
 
-## 4. Publish version 0.6.0
+## 4. Publish version 0.6.1
 
 After the final commit passes CI, with your existing Android secrets still configured:
 
 ```bash
-git tag -a v0.6.0 -m "PulseDrop 0.6.0"
-git push origin v0.6.0
+git tag -a v0.6.1 -m "PulseDrop 0.6.1"
+git push origin v0.6.1
 ```
 
-Pushing this tag starts **Release**. Once every job succeeds, GitHub automatically publishes [the release](https://github.com/shahabbai/PulseDrop/releases) with the `.deb`, `.apk`, `.exe`, `.dmg`, checksums, and only the short 0.6.0 section from `CHANGELOG.md` as its visible release notes. No installer needs to be uploaded or committed by hand. The APK is ARM64, the Windows and Linux packages are x64, and the DMG contains both macOS architectures.
+Pushing this tag starts **Release**. Once every job succeeds, GitHub automatically publishes [the release](https://github.com/shahabbai/PulseDrop/releases) with the `.deb`, `.apk`, `.exe`, `.dmg`, checksums, and only the short 0.6.1 section from `CHANGELOG.md` as its visible release notes. No installer needs to be uploaded or committed by hand. The APK is ARM64, the Windows and Linux packages are x64, and the DMG contains both macOS architectures.
 
 Pushing a commit alone runs CI. Pushing the matching version tag publishes the release. An existing published tag must not be reused or moved.
 
 ## Future versions
 
-After 0.6.0, use `0.6.1` for fixes or `0.7.0` for another feature release. After committing the feature/fix, update the version and changelog:
+After 0.6.1, use `0.6.2` for fixes or `0.7.0` for another feature release. After committing the feature/fix, update the version and changelog:
 
 ```bash
-npm run version:bump -- 0.6.1
+npm run version:bump -- 0.6.2
 # Update CHANGELOG.md with the release notes.
 npm run version:check
 git add package.json package-lock.json src-tauri/Cargo.toml \
   src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
-git commit -m "Release 0.6.1"
+git commit -m "Release 0.6.2"
 git push origin main
 # Wait for CI to pass, then:
-git tag -a v0.6.1 -m "PulseDrop 0.6.1"
-git push origin v0.6.1
+git tag -a v0.6.2 -m "PulseDrop 0.6.2"
+git push origin v0.6.2
 ```
 
-`version:bump` updates the five manifest/lockfiles together. Android's default version code is derived from this version (`0.6.0` becomes `6000`), so increasing the version also increases the Android update version code. This setup accepts stable numeric versions only; prerelease suffixes need an explicit version-code policy before adding them.
+`version:bump` updates the five manifest/lockfiles together. Android's default version code is derived from this version (`0.6.1` becomes `6001`), so increasing the version also increases the Android update version code. This setup accepts stable numeric versions only; prerelease suffixes need an explicit version-code policy before adding them.
 
 ## If a run fails
 
@@ -180,4 +186,4 @@ The desktop build approach follows [Tauri's GitHub Actions guidance](https://v2.
 
 ## Local validation
 
-Version 0.6.0 passed 83 JavaScript tests and 61 Rust tests. Native Linux WebView checks covered keyboard navigation, theme persistence, reduced motion, phone and landscape layouts, enlarged text, exact-byte transfers, cancellation from both ends, and hotspot QR and fallback states with simulated Wi-Fi. The Linux DEB and Android debug APK both built locally and report version 0.6.0. Use the [interface testing checklist](device-testing.md#060-interface-testing) for physical Android, Windows, and macOS checks.
+The frontend refactor passed 87 JavaScript tests, 61 Rust tests, and native Linux WebView checks for discovery, theme persistence, exact-byte delivery, cancellation and retry. Linux DEB and Android debug APK builds passed before the version bump. The tag builds fresh 0.6.1 installers. Use the [device testing checklist](device-testing.md#060-interface-testing) for physical Android, Windows, and macOS checks.
