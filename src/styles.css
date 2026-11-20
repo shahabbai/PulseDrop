@@ -601,3 +601,8 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   .nav-item[aria-current="page"], .connection-choice label:has(:checked), .receiver-choice[aria-pressed="true"] { border-color: Highlight; border-style: dashed; }
   .transfer-fill, .progress-fill, .switch::before { background: Highlight; forced-color-adjust: none; }
 }
+
+.update-row { flex-wrap: wrap; }
+.update-row > div { min-width: min(100%, 210px); }
+.update-row button { min-height: 44px; }
+.update-row progress { width: 100%; margin-top: var(--space-2); accent-color: var(--color-accent); }

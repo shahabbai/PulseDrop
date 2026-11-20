@@ -5,12 +5,30 @@
   const invoke = tauri?.core?.invoke;
   const listen = tauri?.event?.listen;
   const android = /Android/i.test(window.navigator.userAgent);
+  const ios = /iPhone|iPad|iPod/i.test(window.navigator.userAgent);
+
+  /** @type {import("../native-types").NativeUpdates | undefined} */
+  let updates;
+  const { startUpdate, updateStatus, installUpdate } = bridge ?? {};
+  if (startUpdate && updateStatus && installUpdate) {
+    updates = {
+      start: async () => startUpdate.call(bridge),
+      status: async () => JSON.parse(updateStatus.call(bridge)),
+      install: async () => installUpdate.call(bridge)
+    };
+  } else if (invoke && !android && !ios) {
+    updates = {
+      start: () => invoke("start_update"),
+      status: () => invoke("update_status")
+    };
+  }
 
   /** @type {import("../native-types").NativePlatform} */
   const platform = {
     invoke,
     android,
     hotspotBridge: bridge,
+    updates,
     deviceName: () => bridge?.deviceName?.() ?? null,
     setDiscoveryActive(active) {
       try { bridge?.setDiscoveryActive?.(active); }

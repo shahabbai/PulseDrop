@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+- Add **Check for updates** in Settings to download and install signed updates on Ubuntu, Windows, macOS, and Android. Android asks for confirmation in the system installer.
+- Install 0.7.0 manually once to enable in-app updates for future releases.
+
 ## 0.6.1
 
 - Separate transfer handling, Settings, and native platform calls into dedicated frontend modules.

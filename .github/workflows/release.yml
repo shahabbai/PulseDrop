@@ -126,10 +126,20 @@ jobs:
           lipo "$app/Contents/MacOS/$binary" -verify_arch arm64 x86_64
           codesign --verify --deep --strict --verbose=2 "$app"
           hdiutil verify src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+      - name: Archive the verified app for OTA updates
+        env:
+          RELEASE_VERSION: ${{ needs.checks.outputs.version }}
+        run: |
+          mkdir -p artifacts
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg artifacts/
+          COPYFILE_DISABLE=1 tar -czf "artifacts/PulseDrop_${RELEASE_VERSION}_universal.app.tar.gz" \
+            -C src-tauri/target/universal-apple-darwin/release/bundle/macos PulseDrop.app
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-macos-dmg
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            artifacts/*_universal.dmg
+            artifacts/*_universal.app.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -223,22 +233,14 @@ jobs:
           pattern: release-*
           path: release-assets
           merge-multiple: true
-      - name: Verify all platforms and generate checksums
-        working-directory: release-assets
+      - name: Install Minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Sign desktop packages and generate the update feed
         env:
           RELEASE_VERSION: ${{ needs.checks.outputs.version }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          for extension in ['deb', 'apk', 'exe', 'dmg']:
-              files = list(Path('.').glob('*.' + extension))
-              if len(files) != 1:
-                  raise SystemExit('Expected exactly one ' + extension + ' installer, found ' + str(len(files)))
-              if '_' + os.environ['RELEASE_VERSION'] + '_' not in files[0].name:
-                  raise SystemExit('Installer version does not match the release: ' + files[0].name)
-          PY
-          sha256sum ./*.deb ./*.apk ./*.exe ./*.dmg > SHA256SUMS
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/prepare-update-release.mjs release-assets "$RELEASE_VERSION"
       - name: Upload assets and publish release
         env:
           GH_TOKEN: ${{ github.token }}

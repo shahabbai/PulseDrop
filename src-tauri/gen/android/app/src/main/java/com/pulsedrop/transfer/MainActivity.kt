@@ -19,6 +19,7 @@ import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
   val hotspot by lazy { PulseDropHotspot(this) }
+  val updater by lazy { PulseDropUpdater(this) }
   private var discoveryRequested = false
   private var foreground = false
   private var discoveryLock: WifiManager.MulticastLock? = null
@@ -55,6 +56,7 @@ class MainActivity : TauriActivity() {
     super.onResume()
     foreground = true
     updateDiscoveryLock()
+    updater.resumeAfterPermission()
   }
 
   override fun onPause() {
@@ -116,6 +118,7 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    updater.close()
     hotspot.stop()
     discoveryRequested = false
     foreground = false

@@ -8,7 +8,7 @@ PulseDrop is a Windows and Android-first local file transfer app built with Taur
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.6.1**, with a frontend refactor, desktop live reload, and additional transfer regression tests. See [automatic GitHub releases](docs/github-releases.md) for the commit and tag commands that build the Linux DEB, Android APK, Windows EXE, and macOS DMG with the [release notes](CHANGELOG.md).
+PulseDrop **0.7.0** adds in-app updates from GitHub. Install 0.7.0 once using your platform’s installer, then choose **Settings → Check for updates** for later releases. See the [changelog](CHANGELOG.md) and [release guide](docs/github-releases.md).
 
 ## Features
 
@@ -22,6 +22,7 @@ The next release is **0.6.1**, with a frontend refactor, desktop live reload, an
 - Cancel from either device, stop the remaining sender queue, and remove incomplete files while preserving completed transfers. See [transfer cancellation](docs/transfer-cancellation.md).
 - Open the Inbox from the app.
 - Choose Light or Dark in **Settings → Appearance → Theme**. Your choice is saved on this device.
+- Download and install newer versions in **Settings → Software update**. Update checks require internet access.
 - Local HTTP health check before sending, so bad IP/firewall/VPN problems fail clearly.
 - LAN IP detection that prefers Wi-Fi/Ethernet addresses over VPN and tunnel interfaces.
 
@@ -122,7 +123,7 @@ source scripts/local-build-env.sh
 npm run linux:build
 ```
 
-The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.6.1_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
+The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.7.0_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
 
 On another Ubuntu machine, install the [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux), Rust, and Node.js before building; `.build-tools/` is local and is not committed. See [device testing instructions](docs/device-testing.md) for the Ubuntu/Android test builds and a transfer checklist.
 

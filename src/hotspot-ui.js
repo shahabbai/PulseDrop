@@ -228,6 +228,7 @@ export function mountHotspot({ invoke, bridge, ensureReceiver, refreshNetwork, c
   return {
     refresh: render,
     busy: () => controller.snapshot().busy || externalSharing,
+    active: () => Boolean(controller.snapshot().session) || externalSharing,
     hostActive: () => controller.snapshot().session?.role === "host",
     stop: () => controller.stop(),
     viewChanged(view) { if (view !== "send") connectUI.stopCamera(); }

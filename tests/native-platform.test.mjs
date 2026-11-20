@@ -54,3 +54,30 @@ test("receiver subscriptions normalize completion and remove both immediate and 
   assert.equal(events.length, 2);
   assert.deepEqual(removed, ["file-receive-progress", "file-received"]);
 });
+
+test("desktop and Android use their native updater and the browser has none", async () => {
+  const commands = [];
+  const __TAURI__ = { core: { invoke: async (command) => {
+    commands.push(command);
+    return { phase: "current" };
+  } } };
+  const desktop = platform({ __TAURI__ });
+  await desktop.updates.start();
+  assert.equal((await desktop.updates.status()).phase, "current");
+
+  const android = platform({
+    __TAURI__,
+    navigator: { userAgent: "Android" },
+    PulseDropAndroid: {
+      startUpdate: () => commands.push("startUpdate"),
+      updateStatus: () => '{"phase":"permission","version":"0.8.0"}',
+      installUpdate: () => commands.push("installUpdate")
+    }
+  });
+  await android.updates.start();
+  assert.equal((await android.updates.status()).phase, "permission");
+  await android.updates.install();
+  assert.deepEqual(commands, ["start_update", "update_status", "startUpdate", "installUpdate"]);
+  assert.equal(platform().updates, undefined);
+  assert.equal(platform({ __TAURI__, navigator: { userAgent: "iPhone" } }).updates, undefined);
+});

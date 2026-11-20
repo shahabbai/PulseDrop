@@ -238,6 +238,20 @@
                 <section class="diagnostic-card" id="network-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Network profile</h3><span class="diagnostic-status" id="network-status">Checking</span></div><p id="network-message">Checking network profile…</p><small id="network-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-network" disabled>Fix</button></section>
                 <section class="diagnostic-card" id="firewall-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-shield"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Windows Firewall</h3><span class="diagnostic-status" id="firewall-status">Checking</span></div><p id="firewall-message">Checking inbound access…</p><small id="firewall-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-firewall" disabled>Fix</button></section>
               </div></details></div></section>
+              <section class="settings-section" aria-labelledby="software-update-heading">
+                <h2 id="software-update-heading">Software update</h2>
+                <div class="panel settings-group">
+                  <div class="preference-row update-row">
+                    <span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></span>
+                    <div>
+                      <strong>Update PulseDrop</strong>
+                      <p id="update-status" role="status">Download and install the latest version from GitHub.</p>
+                      <progress id="update-progress" aria-label="Update download progress" hidden></progress>
+                    </div>
+                    <button class="secondary-action" id="check-update" type="button" aria-describedby="update-status">Check for updates</button>
+                  </div>
+                </div>
+              </section>
               <section class="settings-section" aria-labelledby="about-heading"><h2 id="about-heading">About</h2><div class="panel settings-group"><div class="preference-row about-row"><img src="../src-tauri/icons/128x128.png" width="36" height="36" alt=""/><div><strong>PulseDrop</strong><p>Local file transfer</p></div><span class="value-badge" data-app-version></span></div><details class="disclosure"><summary>Application details<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><span class="field-label">Installed application</span><strong class="app-path mono" id="settings-app-path">Checking…</strong></details></div></section>
             </article>
           </section>

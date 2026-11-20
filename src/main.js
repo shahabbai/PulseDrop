@@ -5,6 +5,7 @@ import { readFileBody } from "./file-body.js";
 import { createSender } from "./sender.js";
 import { formatBytes, formatSpeed } from "./transfer-format.js";
 import { mountSettings } from "./settings-ui.js";
+import { mountUpdater } from "./update-ui.js";
 import { mountHotspot } from "./hotspot-ui.js";
 import { version } from "../package.json";
 
@@ -38,6 +39,8 @@ const queuedFileIds = new WeakMap();
 const queuedFileStates = new WeakMap();
 const incomingProgress = createReceiveProgress();
 let restoreSendFocus = false;
+let updating = false;
+let changingReceiver = false;
 const receiveCancellation = new Set();
 
 function createId() {
@@ -329,7 +332,7 @@ function syncSendControls() {
   els.sendFiles.hidden = sending;
   els.cancelSend.disabled = cancelling;
   els.cancelSend.textContent = cancelling ? "Cancelling…" : "Cancel transfer";
-  els.sendFiles.disabled = sending || state.files.length === 0 || hotspotUI.busy();
+  els.sendFiles.disabled = updating || sending || state.files.length === 0 || hotspotUI.busy();
   if (sending && focusWasSend && !cancelling) els.cancelSend.focus({ preventScroll: true });
   if (!sending && focusWasCancel) els.sendFiles.focus({ preventScroll: true });
   els.clearFiles.disabled = sending || state.files.length === 0;
@@ -642,11 +645,13 @@ async function loadDeviceProfile() {
 }
 
 async function toggleReceiver() {
+  if (updating || changingReceiver) return;
   if (!invoke) {
     showToast("Run inside Tauri to start receiving");
     return;
   }
 
+  changingReceiver = true;
   setBusy(els.toggleReceiver, true);
   try {
     if (hotspotUI.busy()) throw new Error("Finish or cancel hotspot setup first.");
@@ -668,6 +673,7 @@ async function toggleReceiver() {
     els.receiverDiscoveryStatus.dataset.error = "true";
     els.receiverDiscoveryStatus.textContent = `Could not change the receiver state: ${String(error.message || error)}. Try again or check your network.`;
   } finally {
+    changingReceiver = false;
     setBusy(els.toggleReceiver, false);
   }
 }
@@ -725,7 +731,7 @@ function renderSendErrors(focus = false) {
 }
 
 async function sendSelectedFiles() {
-  if (hotspotUI.busy() || sender.busy()) return;
+  if (updating || hotspotUI.busy() || sender.busy()) return;
   const endpoint = { ip: els.peerIp.value.trim(), port: Number(els.peerPort.value.trim()), code: els.peerCode.value.trim() };
   state.validationErrors = validateReceiver(endpoint);
   state.sendError = "";
@@ -883,7 +889,7 @@ const settingsUI = mountSettings({ root: els.settingsPanel, invoke, showToast })
 const hotspotUI = mountHotspot({
   invoke,
   bridge: native.hotspotBridge,
-  canChange: () => !sender.busy() && !state.activities.some((activity) => activity.kind === "receiving"),
+  canChange: () => !updating && !sender.busy() && !state.activities.some((activity) => activity.kind === "receiving"),
   copy: copyText,
   connectionInfo: () => state.receiver ? { ip: selectedReceiverIp(), port: state.receiver.port, code: state.receiver.code } : null,
   connected: ({ ip, port, code }) => {
@@ -908,6 +914,26 @@ const hotspotUI = mountHotspot({
     await loadDeviceProfile();
     if (address && state.networkIps.some((candidate) => candidate.ip === address)) state.selectedIp = address;
     renderReceiver();
+  }
+});
+
+mountUpdater({
+  root: els.settingsPanel,
+  updates: native.updates,
+  blocked: () => {
+    if (sender.busy() || state.activities.some((activity) => activity.kind === "receiving")) {
+      return "Finish your current transfer before updating.";
+    }
+    if (hotspotUI.busy() || hotspotUI.active()) {
+      return "Disconnect the PulseDrop hotspot and reconnect to the internet before updating.";
+    }
+    if (state.receiver || changingReceiver) return "Stop receiving before checking for updates.";
+    return null;
+  },
+  onBusy: (busy) => {
+    updating = busy;
+    els.toggleReceiver.disabled = busy;
+    syncSendControls();
   }
 });
 

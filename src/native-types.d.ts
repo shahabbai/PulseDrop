@@ -48,6 +48,18 @@ export type HotspotSession = {
   address: string | null;
   network_info?: string;
 };
+export type UpdateStatus = {
+  phase: "idle" | "checking" | "downloading" | "installing" | "current" | "permission" | "ready" | "error";
+  version?: string;
+  received?: number;
+  total?: number | null;
+  message?: string;
+};
+export type NativeUpdates = {
+  start(): Promise<void>;
+  status(): Promise<UpdateStatus>;
+  install?(): Promise<void>;
+};
 type Command<Args extends unknown[], Result> = { args: Args; result: Result };
 type NativeCommands = {
   device_profile: Command<[], {
@@ -73,6 +85,8 @@ type NativeCommands = {
   scan_hotspots: Command<[], { ssid: string; security: string; signal: number; bssid: string; interface: string }[]>;
   open_wifi_settings: Command<[{ hosting: boolean }], void>;
   qr_camera_active: Command<[{ active: boolean }], void>;
+  start_update: Command<[], void>;
+  update_status: Command<[], UpdateStatus>;
 };
 export type Invoke = <K extends keyof NativeCommands>(command: K, ...args: NativeCommands[K]["args"]) => Promise<NativeCommands[K]["result"]>;
 type Listen = <K extends keyof NativeEvents>(event: K, callback: (event: { payload: NativeEvents[K] }) => void) => Promise<Unlisten>;
@@ -82,6 +96,9 @@ interface AndroidBridge {
   setDiscoveryActive?(active: boolean): void;
   setTheme?(theme: Theme): void;
   openInbox?(): void;
+  startUpdate?(): void;
+  updateStatus?(): string;
+  installUpdate?(): void;
   hotspotStatus(): string;
   hotspotStart(): void;
   hotspotStop(): void;
@@ -96,6 +113,7 @@ export interface NativePlatform {
   invoke?: Invoke;
   android: boolean;
   hotspotBridge?: AndroidBridge;
+  updates?: NativeUpdates;
   deviceName(): string | null;
   setDiscoveryActive(active: boolean): void;
   openInbox(path: string): Promise<"downloads" | "manual" | undefined>;

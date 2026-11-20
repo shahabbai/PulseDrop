@@ -23,6 +23,8 @@ mod hotspot;
 mod network;
 mod receive;
 mod transfers;
+#[cfg(desktop)]
+mod updates;
 use network::*;
 
 #[tauri::command]
@@ -256,6 +258,11 @@ fn start_receiver(
         .runtime
         .lock()
         .map_err(|_| "Receiver state is unavailable".to_string())?;
+
+    #[cfg(desktop)]
+    if app.state::<updates::Updates>().busy() {
+        return Err("Wait for the update to finish before starting the receiver.".into());
+    }
 
     if let Some(active) = runtime.as_ref() {
         return Ok(session_from_runtime(active));
@@ -1216,7 +1223,7 @@ fn device_name() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ReceiverState::default())
         .manage(DiscoveryState::default())
@@ -1228,8 +1235,18 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             let _ = app;
             Ok(())
-        })
+        });
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default());
+
+    builder
         .invoke_handler(tauri::generate_handler![
+            #[cfg(desktop)]
+            updates::start_update,
+            #[cfg(desktop)]
+            updates::update_status,
             qr_camera_active,
             scan_hotspots,
             join_hotspot,

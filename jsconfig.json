@@ -14,6 +14,7 @@
     "src/public/*.js",
     "src/sender.js",
     "src/settings-ui.js",
+    "src/update-ui.js",
     "src/transfer-format.js"
   ]
 }

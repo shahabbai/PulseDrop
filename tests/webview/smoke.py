@@ -142,6 +142,21 @@ def check_discovery(app):
     print("PASS LAN discovery, receiver selection, and pairing-field focus", flush=True)
 
 
+def check_update_guard(app):
+    app.nav("receive")
+    app.click("#toggle-receiver")
+    wait_for("receiver to start", lambda: app.text("#receiver-state") == "Online")
+    app.nav("settings")
+    app.click("#check-update")
+    assert "Stop receiving" in app.text("#update-status")
+    assert app.script("return document.querySelector('#update-progress').hidden")
+    assert app.script("return !document.querySelector('#check-update').disabled")
+    app.nav("receive")
+    app.click("#toggle-receiver")
+    wait_for("receiver to stop", lambda: app.text("#receiver-state") == "Offline")
+    print("PASS update control blocks checks while the receiver is online", flush=True)
+
+
 def check_transfers(app, directory):
     app.nav("receive")
     app.click("#toggle-receiver")
@@ -216,6 +231,7 @@ def main():
                 app = WebView(port, args.binary.resolve())
                 wait_for("app startup", lambda: app.script("return !document.querySelector('#boot-screen')"))
                 check_theme(app)
+                check_update_guard(app)
                 check_discovery(app)
                 check_transfers(app, folder)
             except Exception:
