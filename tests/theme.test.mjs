@@ -26,12 +26,12 @@ test("first launch and invalid stored preferences use Dark; saved Light applies 
     const { theme, root, meta } = boot({ saved });
     assert.equal(theme.getTheme(), "dark");
     assert.equal(root.dataset.theme, "dark");
-    assert.equal(meta.content, "#101218");
+    assert.equal(meta.content, "#1e2030");
   }
   const { theme, root, meta } = boot({ saved: "light" });
   assert.equal(theme.getTheme(), "light");
   assert.equal(root.dataset.theme, "light");
-  assert.equal(meta.content, "#f6f7fb");
+  assert.equal(meta.content, "#f5f1eb");
 });
 
 test("switching updates appearance immediately and survives an app restart in both directions", () => {

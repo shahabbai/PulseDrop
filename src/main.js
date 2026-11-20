@@ -83,7 +83,6 @@ const els = {
   homeReceive: document.querySelector("#home-receive"),
   homeSettings: document.querySelector("#home-settings"),
   backHome: document.querySelector("#back-home"),
-  workflowKicker: document.querySelector("#workflow-kicker"),
   workflowTitle: document.querySelector("#workflow-title"),
   sendPanel: document.querySelector("#send-panel"),
   receivePanel: document.querySelector("#receive-panel"),
@@ -343,7 +342,6 @@ function setView(mode, options = {}) {
     if (button.dataset.mode === nextView) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  els.workflowKicker.textContent = "Workspace";
   els.workflowTitle.textContent = { home: "Home", send: "Send files", receive: "Receive files", settings: "Settings" }[nextView];
 
   if (options.updateHistory !== false) {

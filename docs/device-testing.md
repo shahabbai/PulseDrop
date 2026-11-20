@@ -2,6 +2,16 @@
 
 For transfers without a router or internet, use the [receiver hotspot setup and physical test checklist](hotspot-transfer.md). Local-network testing below remains applicable.
 
+## 0.6.0 interface testing
+
+Use the 0.6.0 CI installers or the local Linux DEB and Android debug APK. The debug APK uses the development signing identity. An Android release installation requires an APK signed with the existing release key.
+
+1. Open Home, Send, Receive, and Settings in both themes. Restart and check that the selected theme remains active.
+2. On Android, check portrait and landscape, status bar and gesture navigation clearance, and the keyboard on the pairing and Wi-Fi fields. Increase system text size and try each main action.
+3. On desktop, use Tab and Enter to navigate, choose a file, select a receiver, and copy pairing details. Resize the window and check the focus ring at the top and bottom of the scroll area. Check the system and in-app reduced motion preferences.
+4. Discover a receiver, send and receive a file, and verify progress and saved bytes. Cancel an active transfer from each side and retry. Switch themes during an incoming transfer.
+5. Repeat in Hotspot mode using QR or Wi-Fi selection. Check that a missing permission or unavailable network leaves usable controls and readable instructions.
+
 ## 0.5.0 adaptive hotspot testing
 
 Use fresh 0.5.0 installers from CI or the release. Android's version code is `5000`. Ubuntu 5 GHz throughput was confirmed by the user; test the new Windows/macOS behavior on real devices before publishing.

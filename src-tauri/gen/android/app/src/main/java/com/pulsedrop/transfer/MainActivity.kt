@@ -36,8 +36,9 @@ class MainActivity : TauriActivity() {
 
   private fun applySystemBarTheme(theme: String) {
     val light = theme == "light"
-    val background = if (light) Color.rgb(246, 247, 251) else ContextCompat.getColor(this, R.color.pulsedrop_background)
-    val style = if (light) SystemBarStyle.light(Color.TRANSPARENT, Color.rgb(16, 18, 24))
+    val darkBackground = ContextCompat.getColor(this, R.color.pulsedrop_background)
+    val background = if (light) ContextCompat.getColor(this, R.color.pulsedrop_background_light) else darkBackground
+    val style = if (light) SystemBarStyle.light(Color.TRANSPARENT, darkBackground)
       else SystemBarStyle.dark(Color.TRANSPARENT)
     enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     window.decorView.findViewById<View>(android.R.id.content).setBackgroundColor(background)

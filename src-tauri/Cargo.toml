@@ -1,6 +1,6 @@
 [package]
 name = "pulse_drop"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local network file transfer app"
 authors = ["PulseDrop"]
 edition = "2021"

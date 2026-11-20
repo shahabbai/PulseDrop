@@ -8,7 +8,7 @@ PulseDrop is a Windows and Android-first local file transfer app built with Taur
 
 The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
 
-The next release is **0.5.0**, preferring 5 GHz hotspots on Linux and supported Windows systems, with a 2.4 GHz setup fallback and desktop connection-band details. macOS joins hotspots created by another device. See [automatic GitHub releases](docs/github-releases.md) for manual commit commands and the tag-based workflow that publishes `.deb`, `.apk`, Windows `.exe`, and universal macOS `.dmg` installers with only that version's [changelog](CHANGELOG.md).
+The next release is **0.6.0**, with a Claymorphism redesign across Home, Send, Receive, and Settings in Light and Dark. See [automatic GitHub releases](docs/github-releases.md) for the commit and tag commands that build the Linux DEB, Android APK, Windows EXE, and macOS DMG with the [release notes](CHANGELOG.md).
 
 ## Features
 
@@ -117,7 +117,7 @@ source scripts/local-build-env.sh
 npm run linux:build
 ```
 
-The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.4.0_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
+The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.6.0_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
 
 On another Ubuntu machine, install the [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux), Rust, and Node.js before building; `.build-tools/` is local and is not committed. See [device testing instructions](docs/device-testing.md) for the Ubuntu/Android test builds and a transfer checklist.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Give Home, Send, Receive, and Settings a Claymorphism redesign with rounded panels, tactile controls, and coordinated Light and Dark themes.
+- Improve small-screen layouts, touch targets, and keyboard focus across file and hotspot workflows.
+
 ## 0.5.0
 
 - Prefer 5 GHz hotspots on Linux and supported Windows systems, with a 2.4 GHz setup fallback.
