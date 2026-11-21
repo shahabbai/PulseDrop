@@ -1,14 +1,21 @@
 <p align="center">
-  <img src="assets/brand/pulsedrop-github-logo.png" alt="PulseDrop logo" width="820" />
+  <img src="assets/brand/pulsedrop-github-logo.png" alt="Claymorphism PulseDrop banner with a folded file and cyan pulse" width="900" />
 </p>
 
 # PulseDrop
 
-PulseDrop is a Windows and Android-first local file transfer app built with Tauri 2. Devices can share an existing Wi-Fi/LAN or connect through a receiver-hosted hotspot, without cloud storage, accounts, or an external server.
+Send files directly between your computer and Android phone over Wi-Fi, Ethernet, or a receiver-hosted hotspot. PulseDrop discovers nearby receivers and uses a six-digit pairing code. Transfers stay on your network without cloud storage or an account.
 
-The app supports Windows desktop, Ubuntu 26.04, and Android phones. CI also builds an experimental universal macOS DMG for Apple Silicon and Intel; physical Mac testing is still needed. iOS support is planned.
+[Download PulseDrop](https://github.com/shahabbai/PulseDrop/releases/latest) · [Quick start](#quick-start) · [Changelog](CHANGELOG.md)
 
-PulseDrop **0.7.0** adds in-app updates from GitHub. Install 0.7.0 once using your platform’s installer, then choose **Settings → Check for updates** for later releases. See the [changelog](CHANGELOG.md) and [release guide](docs/github-releases.md).
+Installers are available for Windows, Ubuntu, and Android. The experimental macOS DMG supports Apple Silicon and Intel. iOS support is planned. After installing, open **Settings → Software update** to check for newer versions.
+
+## Quick start
+
+1. Put both devices on the same Wi-Fi or local network. If you don’t have a router, use [Hotspot mode](docs/hotspot-transfer.md).
+2. On the receiving device, open **Receive files** and start the receiver.
+3. On the sending device, open **Send files**, choose your files and the nearby receiver, and enter the receiver’s pairing code. If the receiver doesn’t appear, enter its IP address and port manually.
+4. Press **Send files** and follow progress on either device. Completed files appear in the receiver’s Inbox.
 
 ## Features
 
@@ -30,9 +37,9 @@ PulseDrop **0.7.0** adds in-app updates from GitHub. Install 0.7.0 once using yo
 
 ## Stack
 
-The interface uses shared Light and Dark themes with persistent navigation, file queues, nearby receivers, and collapsed advanced networking controls. The original native app icon is retained. Local design reference files are excluded from Git.
+The Claymorphism interface uses rounded panels, soft shadows, and Light and Dark themes. The [PulseDrop icon](assets/brand/pulsedrop-icon.svg) pairs a folded file with a cyan pulse and appears in the app and platform launchers.
 
-- Tauri 2 for desktop/mobile app shell.
+- Tauri 2 for the desktop and mobile app shell. See the [release guide](docs/github-releases.md) for packaging and update signing.
 - Rust for the local receiver, upload handling, inbox management, device profile, and network interface selection.
 - Vanilla HTML, CSS, and JavaScript for the frontend.
 - Vite for frontend bundling.
@@ -201,12 +208,7 @@ Packaged APK testing is recommended because it avoids Android white screens caus
 
 ## Testing Transfers
 
-1. Put the PC and phone on the same Wi-Fi/LAN.
-2. Start PulseDrop on the receiving device.
-3. Open Receive Files and start the receiver.
-4. Open Send Files on the other device and select the receiver under Nearby receivers.
-5. Enter the receiving device's code. If discovery is unavailable, enter its IP and port manually.
-6. Select files and send.
+Use [Quick start](#quick-start) to send a test file. Confirm that progress appears on both devices and the completed file appears in the receiver’s Inbox.
 
 Discovery uses IPv4 UDP port `53613`; file transfers continue to use HTTP, normally on TCP `53612`. Pairing codes are never included in discovery packets. The Send screen refreshes automatically while visible, with a manual refresh button available. See [LAN discovery design and validation](docs/lan-discovery.md).
 

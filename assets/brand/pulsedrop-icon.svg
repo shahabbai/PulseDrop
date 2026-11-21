@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1024" height="1024">
+  <defs>
+    <linearGradient id="clay" x2="0.82" y2="1">
+      <stop stop-color="#fdfaff"/>
+      <stop offset=".38" stop-color="#e8e5ff"/>
+      <stop offset=".76" stop-color="#c6bff4"/>
+      <stop offset="1" stop-color="#a093dc"/>
+    </linearGradient>
+    <linearGradient id="rim" x2="0.86" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset=".5" stop-color="#f1ebff"/>
+      <stop offset="1" stop-color="#9d8fd4"/>
+    </linearGradient>
+    <linearGradient id="paper" x2="0.78" y2="1">
+      <stop stop-color="#bdb6f4"/>
+      <stop offset=".52" stop-color="#ebe8ff"/>
+      <stop offset="1" stop-color="#c9c2f8"/>
+    </linearGradient>
+    <linearGradient id="outline" x2="0.8" y2="1">
+      <stop stop-color="#736bf4"/>
+      <stop offset=".33" stop-color="#344bdb"/>
+      <stop offset=".66" stop-color="#2979f1"/>
+      <stop offset="1" stop-color="#392bc4"/>
+    </linearGradient>
+    <linearGradient id="fold" x2="0.8" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#aca7ed"/>
+    </linearGradient>
+    <linearGradient id="pulse" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#7af8ff"/>
+      <stop offset=".42" stop-color="#16d6f3"/>
+      <stop offset="1" stop-color="#06a9e7"/>
+    </linearGradient>
+    <filter id="blur-tile" x="-.1" y="-.1" width="1.2" height="1.2">
+      <feGaussianBlur stdDeviation="11"/>
+    </filter>
+    <filter id="blur-mark" x="-.2" y="-.3" width="1.4" height="1.6">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <path id="page" d="M175 109h106l83 80v170c0 21-17 38-38 38H175c-22 0-39-17-39-38V148c0-22 17-39 39-39Z"/>
+    <path id="wave" d="M140 293h63l33-68 37 107 30-53h20l34-48 32 32"/>
+  </defs>
+
+  <rect x="39" y="50" width="434" height="432" rx="117" fill="#33246b" opacity=".35" filter="url(#blur-tile)"/>
+  <rect x="33" y="31" width="446" height="444" rx="122" fill="url(#clay)" stroke="url(#rim)" stroke-width="6"/>
+  <path d="M45 153C45 92 92 44 154 44h205" fill="none" stroke="#fff" stroke-opacity=".66" stroke-width="8" stroke-linecap="round"/>
+
+  <use href="#page" transform="translate(4 12)" fill="#392879" opacity=".4" filter="url(#blur-mark)"/>
+  <use href="#page" fill="url(#paper)" stroke="#352ba3" stroke-width="27" stroke-linejoin="round"/>
+  <use href="#page" transform="translate(0 -3)" fill="url(#paper)" stroke="url(#outline)" stroke-width="21" stroke-linejoin="round"/>
+  <path d="M145 154c0-22 12-38 34-38h92" fill="none" stroke="#bfb5ff" stroke-opacity=".74" stroke-width="4" stroke-linecap="round"/>
+
+  <path d="M282 109v60c0 12 9 21 21 21h61Z" fill="url(#fold)" stroke="url(#fold)" stroke-width="13" stroke-linejoin="round"/>
+  <path d="M282 111v57c0 12 9 21 21 21h57" fill="none" stroke="#f9f4ff" stroke-width="6" stroke-linecap="round"/>
+
+  <use href="#wave" transform="translate(2 9)" fill="none" stroke="#18559d" stroke-width="27" stroke-linecap="round" stroke-linejoin="round" opacity=".5" filter="url(#blur-mark)"/>
+  <use href="#wave" transform="translate(0 3)" fill="none" stroke="#087bbd" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+  <use href="#wave" fill="none" stroke="url(#pulse)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

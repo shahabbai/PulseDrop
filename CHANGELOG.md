@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.2
+
+- Refresh the PulseDrop app and launcher icons with a Claymorphism design on Ubuntu, Windows, macOS, and Android.
+- Update the README with the new banner, a download link, and a quick-start guide.
+
 ## 0.9.1
 
 - Fix an intermittent crash when closing PulseDrop on Ubuntu with NVIDIA graphics.

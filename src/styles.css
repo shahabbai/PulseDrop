@@ -124,7 +124,7 @@ strong { font-weight: 650; }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3); height: 100vh; height: 100dvh; }
 .sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--space-5) var(--space-4) var(--space-4); background: var(--color-sidebar); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--clay-lift); overflow-y: auto; }
 .brand { display: flex; gap: var(--space-3); align-items: center; margin: 0 var(--space-1) var(--space-8); color: var(--color-text); font-size: 19px; font-weight: 750; letter-spacing: -.025em; }
-.brand img { flex: 0 0 auto; border-radius: var(--radius-md); }
+.brand img { flex: 0 0 auto; }
 .app-nav { display: flex; flex: 1; flex-direction: column; gap: var(--space-2); }
 .nav-item { display: flex; align-items: center; gap: var(--space-3); min-height: 48px; padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-secondary); text-align: left; font-size: 14px; font-weight: 600; transition: background var(--duration-feedback), transform var(--duration-feedback) var(--ease-out); }
 .nav-item:hover { color: var(--color-text); background: var(--color-surface); }
@@ -269,18 +269,11 @@ input[aria-invalid="true"] { border-color: var(--color-danger) !important; }
 }
 .home-intro h1 { font-size: clamp(32px, 4.7vw, 60px); line-height: 1.04; text-wrap: initial; }
 .home-intro .page-description { max-width: 34ch; margin-top: var(--space-4); color: var(--color-secondary); font-size: 17px; }
-.home-icon-tile {
-  display: grid;
-  place-items: center;
+.home-app-icon {
+  display: block;
   width: clamp(106px, 16vw, 182px);
-  aspect-ratio: 1;
-  border: 1px solid var(--color-accent-border);
-  border-radius: var(--radius-xl);
-  background: var(--color-send);
-  box-shadow: var(--clay-deep);
-  transform: rotate(-7deg);
+  height: auto;
 }
-.home-app-icon { display: block; width: 59%; height: auto; border-radius: 20%; transform: rotate(7deg); }
 .mode-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); }
 .mode-button {
   display: grid;
@@ -485,7 +478,6 @@ input[aria-invalid="true"] { border-color: var(--color-danger) !important; }
 .diagnostic-card[data-status="warn"] .diagnostic-status { color: var(--color-warning); }
 .diagnostic-copy p { margin-top: var(--space-2); color: var(--color-secondary); font-size: 12px; }
 .diagnostic-copy small { display: block; margin-top: var(--space-1); color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
-.about-row img { border-radius: var(--radius-md); }
 .app-path { display: block; margin-top: var(--space-2); color: var(--color-muted); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
 .toast { position: fixed; bottom: var(--space-6); left: calc(50% + var(--sidebar-width) / 2); z-index: 30; width: max-content; max-width: min(560px, calc(100vw - var(--sidebar-width) - 48px)); padding: 12px 18px; border: 1px solid var(--color-control-border); border-radius: var(--radius-md); color: var(--color-text); background: var(--color-raised); box-shadow: var(--clay-lift); font-size: 12px; opacity: 0; transform: translate(-50%, 8px); pointer-events: none; transition: opacity var(--duration-feedback), transform var(--duration-feedback) var(--ease-out); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -573,7 +565,7 @@ input[aria-invalid="true"] { border-color: var(--color-danger) !important; }
 @media (max-width: 680px) {
   .home-intro { gap: var(--space-4); padding: var(--space-6); }
   .home-intro .page-description { font-size: 16px; }
-  .home-icon-tile { width: 84px; border-radius: var(--radius-lg); }
+  .home-app-icon { width: 84px; }
   .mode-actions { gap: var(--space-3); }
   .mode-button { min-height: 176px; padding: var(--space-4); }
   .mode-card-copy strong { font-size: 19px; }
@@ -587,7 +579,7 @@ input[aria-invalid="true"] { border-color: var(--color-danger) !important; }
 }
 @media (max-width: 350px) {
   .home-intro { padding: var(--space-5); }
-  .home-icon-tile { width: 66px; }
+  .home-app-icon { width: 66px; }
 }
 @media (min-width: 681px) and (max-height: 560px) {
   .brand { margin-bottom: var(--space-4); }
