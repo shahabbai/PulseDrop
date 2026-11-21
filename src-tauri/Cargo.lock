@@ -2750,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "pulse_drop"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "cc",
  "if-addrs",

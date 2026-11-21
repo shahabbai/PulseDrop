@@ -123,7 +123,7 @@ source scripts/local-build-env.sh
 npm run linux:build
 ```
 
-The Ubuntu package is generated at `src-tauri/target/release/bundle/deb/PulseDrop_0.7.0_amd64.deb`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
+The Ubuntu package is generated in `src-tauri/target/release/bundle/deb/`. Install that freshly built package, or run `./src-tauri/target/release/pulse_drop` directly after building. Older copies in `artifacts/` retain their original versions and features.
 
 On another Ubuntu machine, install the [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux), Rust, and Node.js before building; `.build-tools/` is local and is not committed. See [device testing instructions](docs/device-testing.md) for the Ubuntu/Android test builds and a transfer checklist.
 

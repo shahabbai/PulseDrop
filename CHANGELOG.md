@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- Fix an intermittent crash when closing PulseDrop on Ubuntu by using WebKit’s shared-memory renderer.
+
 ## 0.7.0
 
 - Add **Check for updates** in Settings to download and install signed updates on Ubuntu, Windows, macOS, and Android. Android asks for confirmation in the system installer.
