@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Fix an intermittent crash when closing PulseDrop on Ubuntu with NVIDIA graphics.
+
 ## 0.9.0
 
 - Resume transfers from the last confirmed chunk after Wi-Fi interruptions or app restarts.
