@@ -22,14 +22,31 @@ class PulseDropUpdater(private val activity: MainActivity) {
     val filename = "PulseDrop_${version}_android_arm64.apk"
   }
 
-  private val worker = Executors.newSingleThreadExecutor()
+  private val worker = Executors.newFixedThreadPool(2)
   @Volatile private var snapshot = """{"phase":"idle"}"""
+  @Volatile private var availability = "{}"
   @Volatile private var running = false
   @Volatile private var closed = false
   private var ready: Pair<Candidate, File>? = null
   private var awaitingPermission = false
 
   fun status(): String = snapshot
+
+  fun availabilityStatus(): String = availability
+
+  @Synchronized
+  fun checkAvailability() {
+    if (closed || availability.isEmpty()) return
+    availability = ""
+    worker.execute {
+      availability = try {
+        val version = if ("arm64-v8a" in Build.SUPPORTED_ABIS) findUpdate()?.version else null
+        JSONObject().put("version", version).toString()
+      } catch (error: Exception) {
+        """{"error":true}"""
+      }
+    }
+  }
 
   @Synchronized
   fun start() {

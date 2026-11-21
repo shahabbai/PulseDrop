@@ -142,6 +142,37 @@ def check_discovery(app):
     print("PASS LAN discovery, receiver selection, and pairing-field focus", flush=True)
 
 
+def check_update_notice(app):
+    app.nav("home")
+    app.script("""
+      const updates = window.PulseDropNative.updates;
+      const originalCheck = updates.check;
+      const originalNow = Date.now;
+      updates.check = async () => "0.9.0";
+      Date.now = () => originalNow() + 7_200_000;
+      window.restoreUpdateCheck = () => {
+        updates.check = originalCheck;
+        Date.now = originalNow;
+      };
+    """)
+    try:
+        wait_for("in-app update notice", lambda: app.script("""
+          window.dispatchEvent(new Event("online"));
+          return !document.querySelector("#update-notice").hidden;
+        """))
+        assert "0.9.0" in app.text("#update-notice-text")
+        app.click("#view-update")
+        assert app.script("return document.activeElement.id") == "check-update"
+        assert app.text("#check-update") == "Install update"
+        app.nav("home")
+        app.click("#dismiss-update")
+        assert app.script("return document.querySelector('#update-notice').hidden")
+        assert app.script("return localStorage.getItem('pulsedrop.dismissedUpdateVersion')") == "0.9.0"
+    finally:
+        app.script("window.restoreUpdateCheck(); delete window.restoreUpdateCheck;")
+    print("PASS automatic update notice, Settings navigation, and dismissal", flush=True)
+
+
 def check_update_guard(app):
     app.nav("receive")
     app.click("#toggle-receiver")
@@ -231,6 +262,7 @@ def main():
                 app = WebView(port, args.binary.resolve())
                 wait_for("app startup", lambda: app.script("return !document.querySelector('#boot-screen')"))
                 check_theme(app)
+                check_update_notice(app)
                 check_update_guard(app)
                 check_discovery(app)
                 check_transfers(app, folder)

@@ -49,13 +49,14 @@ export type HotspotSession = {
   network_info?: string;
 };
 export type UpdateStatus = {
-  phase: "idle" | "checking" | "downloading" | "installing" | "current" | "permission" | "ready" | "error";
+  phase: "idle" | "available" | "checking" | "downloading" | "installing" | "current" | "permission" | "ready" | "error";
   version?: string;
   received?: number;
   total?: number | null;
   message?: string;
 };
 export type NativeUpdates = {
+  check?(): Promise<string | null>;
   start(): Promise<void>;
   status(): Promise<UpdateStatus>;
   install?(): Promise<void>;
@@ -85,6 +86,7 @@ type NativeCommands = {
   scan_hotspots: Command<[], { ssid: string; security: string; signal: number; bssid: string; interface: string }[]>;
   open_wifi_settings: Command<[{ hosting: boolean }], void>;
   qr_camera_active: Command<[{ active: boolean }], void>;
+  available_update: Command<[], string | null>;
   start_update: Command<[], void>;
   update_status: Command<[], UpdateStatus>;
 };
@@ -96,6 +98,8 @@ interface AndroidBridge {
   setDiscoveryActive?(active: boolean): void;
   setTheme?(theme: Theme): void;
   openInbox?(): void;
+  checkUpdateAvailability?(): void;
+  updateAvailability?(): string;
   startUpdate?(): void;
   updateStatus?(): string;
   installUpdate?(): void;

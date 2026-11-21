@@ -4,6 +4,8 @@ import android.webkit.JavascriptInterface
 import android.os.Build
 
 class PulseDropAndroidBridge(private val activity: MainActivity) {
+  @JavascriptInterface fun checkUpdateAvailability() { activity.updater.checkAvailability() }
+  @JavascriptInterface fun updateAvailability(): String = activity.updater.availabilityStatus()
   @JavascriptInterface fun startUpdate() { activity.updater.start() }
   @JavascriptInterface fun updateStatus(): String = activity.updater.status()
   @JavascriptInterface fun installUpdate() { activity.runOnUiThread { activity.updater.install() } }

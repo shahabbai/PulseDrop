@@ -1244,6 +1244,8 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             #[cfg(desktop)]
+            updates::available_update,
+            #[cfg(desktop)]
             updates::start_update,
             #[cfg(desktop)]
             updates::update_status,

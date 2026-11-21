@@ -917,9 +917,14 @@ const hotspotUI = mountHotspot({
   }
 });
 
-mountUpdater({
+const updateUI = mountUpdater({
   root: els.settingsPanel,
   updates: native.updates,
+  notice: document.querySelector("#update-notice"),
+  openSettings: () => {
+    setView("settings");
+    document.querySelector("#check-update").focus();
+  },
   blocked: () => {
     if (sender.busy() || state.activities.some((activity) => activity.kind === "receiving")) {
       return "Finish your current transfer before updating.";
@@ -945,6 +950,19 @@ renderReceiver();
 renderActivities();
 hideBootScreen();
 loadDeviceProfile();
+
+function checkForUpdateNotice() {
+  if (!document.hidden && navigator.onLine && !hotspotUI.busy() && !hotspotUI.active()) {
+    void updateUI.checkAvailability();
+  }
+}
+if (native.updates?.check) {
+  document.addEventListener("visibilitychange", checkForUpdateNotice);
+  window.addEventListener("online", checkForUpdateNotice);
+  window.setInterval(checkForUpdateNotice, 5 * 60 * 1000);
+  checkForUpdateNotice();
+}
+
 let stopReceiveEvents = native.subscribeReceiver(handleReceiveProgress, createId);
 window.addEventListener("pagehide", () => stopReceiveEvents());
 window.addEventListener("pageshow", (event) => {

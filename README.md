@@ -23,6 +23,7 @@ PulseDrop **0.7.0** adds in-app updates from GitHub. Install 0.7.0 once using yo
 - Open the Inbox from the app.
 - Choose Light or Dark in **Settings → Appearance → Theme**. Your choice is saved on this device.
 - Download and install newer versions in **Settings → Software update**. Update checks require internet access.
+- Get a dismissible in-app notice when a newer version is available.
 - Local HTTP health check before sending, so bad IP/firewall/VPN problems fail clearly.
 - LAN IP detection that prefers Wi-Fi/Ethernet addresses over VPN and tunnel interfaces.
 

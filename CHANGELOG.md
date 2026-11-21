@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0
+
+- Show a dismissible notice when a newer version of PulseDrop is available. Open Settings from the notice to install the update.
+
 ## 0.7.1
 
 - Fix an intermittent crash when closing PulseDrop on Ubuntu by using WebKit’s shared-memory renderer.

@@ -1,9 +1,14 @@
 /** @typedef {import("./native-types").UpdateStatus} UpdateStatus */
 /** @typedef {import("./native-types").NativeUpdates} NativeUpdates */
 
+const CHECK_INTERVAL = 60 * 60 * 1000;
+const RETRY_INTERVAL = 5 * 60 * 1000;
+const DISMISSED_VERSION = "pulsedrop.dismissedUpdateVersion";
+
 /** @param {UpdateStatus} state */
 function statusMessage(state) {
   switch (state.phase) {
+    case "available": return `PulseDrop ${state.version} is available.`;
     case "checking": return "Checking GitHub for updates…";
     case "downloading": return `Downloading PulseDrop ${state.version}…`;
     case "installing": return `Installing PulseDrop ${state.version}. Follow any system prompts.`;
@@ -17,22 +22,43 @@ function statusMessage(state) {
 
 /**
  * @param {{ root: HTMLElement, updates?: NativeUpdates, blocked: () => string | null,
- *  onBusy: (busy: boolean) => void, wait?: () => Promise<void> }} options
+ *  onBusy: (busy: boolean) => void, notice?: HTMLElement, openSettings?: () => void,
+ *  wait?: () => Promise<void> }} options
  */
-export function mountUpdater({ root, updates, blocked, onBusy,
+export function mountUpdater({ root, updates, blocked, onBusy, notice, openSettings,
   wait = () => new Promise((resolve) => setTimeout(resolve, 350))
 }) {
   const button = /** @type {HTMLButtonElement} */ (root.querySelector("#check-update"));
   const message = /** @type {HTMLElement} */ (root.querySelector("#update-status"));
   const progress = /** @type {HTMLProgressElement} */ (root.querySelector("#update-progress"));
+  const noticeText = notice?.querySelector("#update-notice-text");
   /** @type {UpdateStatus} */
   let state = { phase: "idle" };
   let busy = false;
   let pendingInstall = false;
+  let checkingAvailability = false;
+  let nextCheck = 0;
+  let manualChecks = 0;
+  /** @type {string | null} */
+  let availableVersion = null;
+  /** @type {string | null} */
+  let dismissedVersion = null;
+  try { dismissedVersion = root.ownerDocument?.defaultView?.localStorage.getItem(DISMISSED_VERSION) ?? null; }
+  catch { /* The notice can still be dismissed for this session. */ }
+
+  function renderNotice() {
+    if (!notice || !noticeText) return;
+    notice.hidden = busy || pendingInstall || !availableVersion || dismissedVersion === availableVersion;
+    if (!notice.hidden) {
+      const text = statusMessage({ phase: "available", version: availableVersion ?? undefined });
+      if (noticeText.textContent !== text) noticeText.textContent = text;
+    }
+  }
 
   /** @param {UpdateStatus} next */
   function render(next) {
     state = next;
+    if (next.phase === "current") availableVersion = null;
     pendingInstall = next.phase === "permission" || next.phase === "ready";
     const status = statusMessage(next);
     if (message.textContent !== status) message.textContent = status;
@@ -43,7 +69,24 @@ export function mountUpdater({ root, updates, blocked, onBusy,
     } else {
       progress.removeAttribute("value");
     }
-    button.textContent = pendingInstall ? "Install update" : "Check for updates";
+    button.textContent = pendingInstall || availableVersion ? "Install update" : "Check for updates";
+    renderNotice();
+  }
+
+  async function checkAvailability(now = Date.now()) {
+    if (!updates?.check || busy || pendingInstall || checkingAvailability || now < nextCheck) return;
+    checkingAvailability = true;
+    const revision = manualChecks;
+    try {
+      const version = await updates.check();
+      nextCheck = now + CHECK_INTERVAL;
+      if (revision !== manualChecks) return;
+      const previouslyAvailable = availableVersion;
+      availableVersion = version;
+      if (version) render({ phase: "available", version });
+      else if (previouslyAvailable) render({ phase: "idle" });
+    } catch { nextCheck = now + RETRY_INTERVAL; }
+    finally { checkingAvailability = false; }
   }
 
   async function run() {
@@ -53,7 +96,9 @@ export function mountUpdater({ root, updates, blocked, onBusy,
       message.textContent = reason;
       return;
     }
+    manualChecks++;
     busy = true;
+    renderNotice();
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     onBusy(true);
@@ -78,6 +123,7 @@ export function mountUpdater({ root, updates, blocked, onBusy,
       button.disabled = false;
       button.removeAttribute("aria-busy");
       onBusy(false);
+      renderNotice();
     }
   }
 
@@ -96,4 +142,13 @@ export function mountUpdater({ root, updates, blocked, onBusy,
     button.disabled = true;
     message.textContent = "Updates are unavailable in this build of PulseDrop.";
   }
+  notice?.querySelector("#view-update")?.addEventListener("click", () => openSettings?.());
+  notice?.querySelector("#dismiss-update")?.addEventListener("click", () => {
+    if (!availableVersion) return;
+    dismissedVersion = availableVersion;
+    try { root.ownerDocument?.defaultView?.localStorage.setItem(DISMISSED_VERSION, dismissedVersion); }
+    catch { /* Keep the dismissal in memory. */ }
+    renderNotice();
+  });
+  return { checkAvailability };
 }

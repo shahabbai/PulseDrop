@@ -110,7 +110,15 @@ fn supported_installation() -> bool {
     }
 }
 
-async fn check_and_install(app: &AppHandle) -> Result<bool, String> {
+#[tauri::command]
+pub async fn available_update(app: AppHandle) -> Result<Option<String>, String> {
+    if !supported_installation() {
+        return Ok(None);
+    }
+    Ok(find_update(&app).await?.map(|update| update.version))
+}
+
+async fn find_update(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, String> {
     let updater = app
         .updater_builder()
         .timeout(Duration::from_secs(30))
@@ -120,15 +128,17 @@ async fn check_and_install(app: &AppHandle) -> Result<bool, String> {
         })
         .build()
         .map_err(|_| "PulseDrop could not initialize its updater.")?;
-    let Some(mut update) = updater.check().await.map_err(|_| {
+    let Some(update) = updater.check().await.map_err(|_| {
         "PulseDrop could not check GitHub for updates. Check your internet connection and try again."
     })? else {
-        return Ok(false);
+        return Ok(None);
     };
 
-    let version = update.version.clone();
     let url = &update.download_url;
-    let release_path = format!("/shahabbai/PulseDrop/releases/download/v{version}/");
+    let release_path = format!(
+        "/shahabbai/PulseDrop/releases/download/v{}/",
+        update.version
+    );
     if url.scheme() != "https"
         || url.host_str() != Some("github.com")
         || url.port().is_some()
@@ -138,7 +148,14 @@ async fn check_and_install(app: &AppHandle) -> Result<bool, String> {
     {
         return Err("The update download address is invalid.".into());
     }
+    Ok(Some(update))
+}
 
+async fn check_and_install(app: &AppHandle) -> Result<bool, String> {
+    let Some(mut update) = find_update(app).await? else {
+        return Ok(false);
+    };
+    let version = update.version.clone();
     update.timeout = Some(Duration::from_secs(20 * 60));
     let state = app.state::<Updates>();
     state.set(Status::Downloading {

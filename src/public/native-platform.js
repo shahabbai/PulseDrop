@@ -9,15 +9,32 @@
 
   /** @type {import("../native-types").NativeUpdates | undefined} */
   let updates;
-  const { startUpdate, updateStatus, installUpdate } = bridge ?? {};
+  const { startUpdate, updateStatus, installUpdate, checkUpdateAvailability, updateAvailability } = bridge ?? {};
   if (startUpdate && updateStatus && installUpdate) {
     updates = {
       start: async () => startUpdate.call(bridge),
       status: async () => JSON.parse(updateStatus.call(bridge)),
       install: async () => installUpdate.call(bridge)
     };
+    if (checkUpdateAvailability && updateAvailability) {
+      updates.check = async () => {
+        checkUpdateAvailability.call(bridge);
+        const deadline = Date.now() + 45_000;
+        while (Date.now() < deadline) {
+          const snapshot = updateAvailability.call(bridge);
+          if (snapshot) {
+            const result = JSON.parse(snapshot);
+            if (result.error) throw new Error("Could not check GitHub for updates.");
+            return result.version ?? null;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 350));
+        }
+        throw new Error("The update check timed out.");
+      };
+    }
   } else if (invoke && !android && !ios) {
     updates = {
+      check: () => invoke("available_update"),
       start: () => invoke("start_update"),
       status: () => invoke("update_status")
     };

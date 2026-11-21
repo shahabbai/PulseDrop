@@ -59,9 +59,11 @@ test("desktop and Android use their native updater and the browser has none", as
   const commands = [];
   const __TAURI__ = { core: { invoke: async (command) => {
     commands.push(command);
+    if (command === "available_update") return "0.9.0";
     return { phase: "current" };
   } } };
   const desktop = platform({ __TAURI__ });
+  assert.equal(await desktop.updates.check(), "0.9.0");
   await desktop.updates.start();
   assert.equal((await desktop.updates.status()).phase, "current");
 
@@ -69,15 +71,18 @@ test("desktop and Android use their native updater and the browser has none", as
     __TAURI__,
     navigator: { userAgent: "Android" },
     PulseDropAndroid: {
+      checkUpdateAvailability: () => commands.push("checkUpdateAvailability"),
+      updateAvailability: () => '{"version":"0.9.0"}',
       startUpdate: () => commands.push("startUpdate"),
       updateStatus: () => '{"phase":"permission","version":"0.8.0"}',
       installUpdate: () => commands.push("installUpdate")
     }
   });
+  assert.equal(await android.updates.check(), "0.9.0");
   await android.updates.start();
   assert.equal((await android.updates.status()).phase, "permission");
   await android.updates.install();
-  assert.deepEqual(commands, ["start_update", "update_status", "startUpdate", "installUpdate"]);
+  assert.deepEqual(commands, ["available_update", "start_update", "update_status", "checkUpdateAvailability", "startUpdate", "installUpdate"]);
   assert.equal(platform().updates, undefined);
   assert.equal(platform({ __TAURI__, navigator: { userAgent: "iPhone" } }).updates, undefined);
 });
