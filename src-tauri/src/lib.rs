@@ -13,7 +13,7 @@ use std::{
         Mutex,
     },
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -22,6 +22,7 @@ mod discovery;
 mod hotspot;
 mod network;
 mod receive;
+mod resume;
 mod transfers;
 #[cfg(desktop)]
 mod updates;
@@ -166,6 +167,7 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 #[derive(Default)]
 struct ReceiverState {
     runtime: Mutex<Option<ReceiverRuntime>>,
+    resumes: resume::Store,
 }
 
 struct ReceiverRuntime {
@@ -288,6 +290,11 @@ fn start_receiver(
     let thread_app = app.clone();
     let transfers = std::sync::Arc::new(transfers::Transfers::default());
     let thread_transfers = transfers.clone();
+    let receiver_id = state.resumes.prepare(&inbox_dir).ok();
+    let pending = receiver_id
+        .as_ref()
+        .map(|_| state.resumes.pending(&inbox_dir).unwrap_or_default())
+        .unwrap_or_default();
 
     let name: String = receiver_name
         .unwrap_or_else(device_name)
@@ -317,6 +324,7 @@ fn start_receiver(
             thread_code,
             thread_stop,
             thread_transfers,
+            receiver_id,
         );
     });
 
@@ -331,20 +339,26 @@ fn start_receiver(
     };
     let session = session_from_runtime(&active);
     *runtime = Some(active);
+    for progress in pending {
+        let _ = app.emit("file-receive-progress", progress);
+    }
 
     Ok(session)
 }
 
 #[tauri::command]
-fn stop_receiver(state: State<'_, ReceiverState>) -> Result<(), String> {
+fn stop_receiver(app: AppHandle, state: State<'_, ReceiverState>) -> Result<(), String> {
     let mut runtime = state
         .runtime
         .lock()
         .map_err(|_| "Receiver state is unavailable".to_string())?;
 
     if let Some(active) = runtime.take() {
-        active.stop.store(true, Ordering::Relaxed);
+        state.resumes.suspend(&active.stop);
         active.transfers.cancel_all();
+        for progress in state.resumes.pending(&active.inbox_dir).unwrap_or_default() {
+            let _ = app.emit("file-receive-progress", progress);
+        }
     }
 
     Ok(())
@@ -352,6 +366,7 @@ fn stop_receiver(state: State<'_, ReceiverState>) -> Result<(), String> {
 
 #[tauri::command]
 fn cancel_receive(
+    app: AppHandle,
     state: State<'_, ReceiverState>,
     transfer_id: Option<String>,
 ) -> Result<(), String> {
@@ -364,9 +379,32 @@ fn cancel_receive(
         if !transfers::valid_id(&id) {
             return Err("Invalid transfer ID".into());
         }
-        active.transfers.cancel(&id);
+        if resume::valid_id(&id)
+            && state
+                .resumes
+                .status(&active.inbox_dir, &id)
+                .map_err(|err| err.to_string())?
+                .is_some()
+        {
+            state
+                .resumes
+                .cancel(&active.inbox_dir, &id, |progress| {
+                    let _ = app.emit("file-receive-progress", progress);
+                })
+                .map_err(|err| err.to_string())?;
+        } else {
+            active.transfers.cancel(&id);
+        }
     } else {
         active.transfers.cancel_all();
+        for id in state.resumes.active_ids() {
+            state
+                .resumes
+                .cancel(&active.inbox_dir, &id, |progress| {
+                    let _ = app.emit("file-receive-progress", progress);
+                })
+                .map_err(|err| err.to_string())?;
+        }
     }
     Ok(())
 }
@@ -721,16 +759,36 @@ fn receiver_loop(
     code: String,
     stop: std::sync::Arc<AtomicBool>,
     transfers: std::sync::Arc<transfers::Transfers>,
+    receiver_id: Option<String>,
 ) {
+    let mut last_pause_check = Instant::now();
     while !stop.load(Ordering::Relaxed) {
+        if receiver_id.is_some() && last_pause_check.elapsed() >= Duration::from_secs(1) {
+            app.state::<ReceiverState>()
+                .resumes
+                .pause_idle(&inbox_dir, |progress| {
+                    let _ = app.emit("file-receive-progress", progress);
+                });
+            last_pause_check = Instant::now();
+        }
         match listener.accept() {
             Ok((stream, _)) => {
                 let app = app.clone();
                 let inbox_dir = inbox_dir.clone();
                 let code = code.clone();
                 let transfers = transfers.clone();
+                let stop = stop.clone();
+                let receiver_id = receiver_id.clone();
                 thread::spawn(move || {
-                    if let Err(error) = handle_stream(stream, &app, &inbox_dir, &code, &transfers) {
+                    if let Err(error) = handle_stream(
+                        stream,
+                        &app,
+                        &inbox_dir,
+                        &code,
+                        &transfers,
+                        &stop,
+                        receiver_id.as_deref(),
+                    ) {
                         eprintln!("Receiver error: {error}");
                     }
                 });
@@ -752,6 +810,8 @@ fn handle_stream(
     inbox_dir: &Path,
     expected_code: &str,
     transfers: &transfers::Transfers,
+    stop: &AtomicBool,
+    receiver_id: Option<&str>,
 ) -> Result<(), String> {
     stream
         .set_nonblocking(false)
@@ -781,14 +841,22 @@ fn handle_stream(
                 "text/plain",
             )?;
         } else {
-            write_response(&mut stream, 200, "OK", "Ready", "text/plain")?;
+            write_response_with_resume(&mut stream, 200, "OK", "Ready", "text/plain", receiver_id)?;
         }
         return Ok(());
     }
 
     let control_request = (request.method == "GET" && request.path == "/transfer")
         || (request.method == "POST" && request.path == "/cancel");
-    if !control_request && (request.method != "POST" || !request.path.starts_with("/upload")) {
+    let resumable = receiver_id.is_some()
+        && matches!(
+            (request.method.as_str(), request.path.as_str()),
+            ("GET" | "POST", "/resume") | ("POST", "/resume/cancel")
+        );
+    if !resumable
+        && !control_request
+        && (request.method != "POST" || !request.path.starts_with("/upload"))
+    {
         write_response(&mut stream, 404, "Not Found", "Not found", "text/plain")?;
         return Ok(());
     }
@@ -803,6 +871,10 @@ fn handle_stream(
             "text/plain",
         )?;
         return Ok(());
+    }
+
+    if resumable {
+        return handle_resume(&mut stream, app, inbox_dir, stop, &request);
     }
 
     if control_request {
@@ -895,6 +967,115 @@ fn handle_stream(
     Ok(())
 }
 
+fn handle_resume(
+    stream: &mut TcpStream,
+    app: &AppHandle,
+    inbox: &Path,
+    stop: &AtomicBool,
+    request: &HttpRequest,
+) -> Result<(), String> {
+    let value = |key| {
+        request
+            .query
+            .get(key)
+            .map(String::as_str)
+            .unwrap_or_default()
+    };
+    let id = value("transfer_id");
+    if !resume::valid_id(id) {
+        return write_response(
+            stream,
+            400,
+            "Bad Request",
+            "Invalid resumable transfer ID",
+            "text/plain",
+        );
+    }
+    let state = app.state::<ReceiverState>();
+    let store = &state.resumes;
+    let notify = |progress| {
+        let _ = app.emit("file-receive-progress", progress);
+    };
+    let result = if request.method == "GET" {
+        store.status(inbox, id)
+    } else if request.path == "/resume/cancel" {
+        store.cancel(inbox, id, notify).map(Some)
+    } else {
+        let length = request
+            .headers
+            .get("content-length")
+            .and_then(|n| n.parse().ok());
+        let (Ok(size), Ok(offset), Some(length)) =
+            (value("size").parse(), value("offset").parse(), length)
+        else {
+            return write_response(
+                stream,
+                400,
+                "Bad Request",
+                "Missing chunk range",
+                "text/plain",
+            );
+        };
+        let name = sanitize_file_name(value("name"));
+        let name = if name.is_empty() {
+            "received-file".into()
+        } else {
+            name
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .map_err(|err| err.to_string())?;
+        store
+            .append(
+                inbox,
+                resume::Chunk {
+                    id,
+                    name: name.clone(),
+                    size,
+                    offset,
+                    length,
+                    digest: value("digest"),
+                    prefix: &request.body_start,
+                },
+                stream,
+                stop,
+                notify,
+            )
+            .map(|(status, saved)| {
+                if let Some(path) = saved {
+                    let _ = app.emit(
+                        "file-received",
+                        ReceivedFile {
+                            transfer_id: id.into(),
+                            name,
+                            size,
+                            path: path.to_string_lossy().into(),
+                        },
+                    );
+                }
+                Some(status)
+            })
+    };
+    match result {
+        Ok(status) => write_response(
+            stream,
+            200,
+            "OK",
+            &serde_json::to_string(&status).unwrap(),
+            "application/json",
+        ),
+        Err(err) => {
+            let (status, reason) = match err.kind() {
+                std::io::ErrorKind::InvalidInput => (400, "Bad Request"),
+                std::io::ErrorKind::NotFound => (404, "Not Found"),
+                std::io::ErrorKind::WouldBlock => (503, "Receiver Busy"),
+                _ => (500, "Internal Server Error"),
+            };
+            write_response(stream, status, reason, &err.to_string(), "text/plain")
+        }
+    }
+}
+
 struct HttpRequest {
     method: String,
     path: String,
@@ -965,14 +1146,28 @@ fn write_response(
     body: &str,
     content_type: &str,
 ) -> Result<(), String> {
+    write_response_with_resume(stream, status, reason, body, content_type, None)
+}
+
+fn write_response_with_resume(
+    stream: &mut TcpStream,
+    status: u16,
+    reason: &str,
+    body: &str,
+    content_type: &str,
+    receiver_id: Option<&str>,
+) -> Result<(), String> {
+    let capability = receiver_id
+        .map(|id| format!("X-PulseDrop-Resume: {id}\r\n"))
+        .unwrap_or_default();
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
          Access-Control-Allow-Headers: content-type\r\n\
-         Access-Control-Expose-Headers: X-PulseDrop-Cancellation\r\n\
+         Access-Control-Expose-Headers: X-PulseDrop-Cancellation, X-PulseDrop-Resume\r\n\
          X-PulseDrop-Cancellation: 1\r\n\
-         Content-Type: {content_type}; charset=utf-8\r\n\
+         {capability}Content-Type: {content_type}; charset=utf-8\r\n\
          Content-Length: {}\r\n\
          Connection: close\r\n\r\n{}",
         body.as_bytes().len(),

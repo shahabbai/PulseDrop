@@ -20,6 +20,7 @@ PulseDrop **0.7.0** adds in-app updates from GitHub. Install 0.7.0 once using yo
 - Save received files into an app Inbox folder.
 - Follow live byte progress and speed on both the sending and receiving devices, with per-file transfer activity.
 - Cancel from either device, stop the remaining sender queue, and remove incomplete files while preserving completed transfers. See [transfer cancellation](docs/transfer-cancellation.md).
+- Resume large transfers from the last confirmed chunk after a connection drop or app restart. Both devices need PulseDrop 0.9.0 or newer.
 - Open the Inbox from the app.
 - Choose Light or Dark in **Settings → Appearance → Theme**. Your choice is saved on this device.
 - Download and install newer versions in **Settings → Software update**. Update checks require internet access.
@@ -43,7 +44,7 @@ The interface uses shared Light and Dark themes with persistent navigation, file
 2. The app shows the receiver IP, port, and pairing code and answers LAN discovery requests.
 3. The sending device selects a nearby receiver (or enters its IP and port manually), enters its pairing code, and selects files.
 4. Before upload, the sender calls `/health` to confirm the receiver is reachable.
-5. Files are posted to `/upload` and saved in the receiver Inbox.
+5. Compatible devices send files in 4 MiB chunks. The receiver saves confirmed chunks privately and publishes the file to the Inbox when complete. Older receivers use the original `/upload` endpoint.
 
 
 ## Project Structure
@@ -218,7 +219,7 @@ npm run frontend:build
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-On Linux, build the desktop app, then run `npm run test:webview` with Python 3.9+, `tauri-driver` and `WebKitWebDriver` on `PATH` and a graphical session available. The test uses a temporary app profile and covers theme persistence, nearby receiver selection, file selection, transfer, and cancellation. Close any active PulseDrop receivers first so the test can use UDP discovery port `53613`.
+On Linux, build the desktop app, then run `npm run test:webview` with Python 3.9+, `tauri-driver` and `WebKitWebDriver` on `PATH` and a graphical session available. The test uses a temporary app profile and covers discovery, exact-byte transfer, cancellation, and resuming a partially transferred file after an app restart and a dropped connection. Close any active PulseDrop receivers first so the test can use UDP discovery port `53613`.
 
 To check the receiver manually, open this in a browser from the other device:
 
@@ -237,6 +238,16 @@ Example:
 ```text
 http://192.168.1.25:53612/health?code=123456
 ```
+
+### Test resumable transfers on Android and Ubuntu
+
+1. Install PulseDrop 0.9.0 or newer on both devices and connect them to the same Wi-Fi. Start **Receive files** on Android. On Ubuntu, select the phone and send a large file, preferably 256 MiB or more so there is time to disconnect.
+2. Once the receiver displays progress, turn off Wi-Fi on one device for a few seconds and reconnect. The sender retries the interrupted chunk. If the transfer pauses, select the receiver again, enter its current pairing code, and press **Resume transfer**.
+3. Repeat the test and close both apps after the receiver has confirmed some bytes. Reopen both apps, start receiving again, reselect the same unchanged file on the sender, enter the receiver’s new pairing code, and press **Send files**. Progress resumes from the last confirmed chunk. Repeat with Android sending to Ubuntu.
+4. Confirm that the receiver saves one completed file. Compare its SHA-256 checksum with the original using `sha256sum` on Ubuntu. For an Android receipt, copy it back to Ubuntu under a different name first.
+5. Try **Cancel** during a transfer or **Discard** beside a paused file in the receiver’s activity list. This clears the saved data for that transfer. If you cancel from the sender while disconnected, it sends the cancellation the next time you try that file with the same receiver.
+
+The receiver keeps confirmed chunks for up to seven days. Keep the original file and the app’s data until the transfer finishes. An unconfirmed chunk may be sent again after a disconnect. Older app versions can still transfer using the original protocol.
 
 ## Troubleshooting
 

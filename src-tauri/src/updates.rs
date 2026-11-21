@@ -231,11 +231,20 @@ mod tests {
                         Err(err) => panic!("fixture server did not receive a request: {err}"),
                     }
                 };
+                // Winsock inherits the listener's nonblocking mode on accept.
+                // The fixture serves each connection with timed blocking I/O.
+                connection.set_nonblocking(false).unwrap();
                 connection
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
+                connection
+                    .set_write_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
                 for line in BufReader::new(&connection).lines() {
-                    if line.unwrap().is_empty() {
+                    if line
+                        .expect("could not read updater fixture request")
+                        .is_empty()
+                    {
                         break;
                     }
                 }

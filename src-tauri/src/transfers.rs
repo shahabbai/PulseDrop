@@ -51,10 +51,19 @@ impl Control {
     }
 
     pub fn reader<'a, R: Read>(&'a self, source: &'a mut R) -> CancellableReader<'a, R> {
+        self.reader_with_idle_timeout(source, UPLOAD_IDLE_TIMEOUT)
+    }
+
+    pub fn reader_with_idle_timeout<'a, R: Read>(
+        &'a self,
+        source: &'a mut R,
+        idle_timeout: Duration,
+    ) -> CancellableReader<'a, R> {
         CancellableReader {
             source,
             control: self,
             last_byte: Instant::now(),
+            idle_timeout,
         }
     }
 
@@ -101,6 +110,7 @@ pub(crate) struct CancellableReader<'a, R> {
     source: &'a mut R,
     control: &'a Control,
     last_byte: Instant,
+    idle_timeout: Duration,
 }
 
 impl<R: Read> Read for CancellableReader<'_, R> {
@@ -116,7 +126,7 @@ impl<R: Read> Read for CancellableReader<'_, R> {
                         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                     ) =>
                 {
-                    if self.last_byte.elapsed() >= UPLOAD_IDLE_TIMEOUT {
+                    if self.last_byte.elapsed() >= self.idle_timeout {
                         return Err(io::Error::new(
                             io::ErrorKind::TimedOut,
                             "Upload timed out waiting for data",

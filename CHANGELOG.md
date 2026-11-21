@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+- Resume transfers from the last confirmed chunk after Wi-Fi interruptions or app restarts.
+- Keep partial files out of the Inbox and let the receiver discard paused transfers.
+- Fix an intermittent Windows updater test failure that stopped the release build.
+
 ## 0.8.0
 
 - Show a dismissible notice when a newer version of PulseDrop is available. Open Settings from the notice to install the update.

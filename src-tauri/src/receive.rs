@@ -4,15 +4,18 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
+pub(crate) static DESTINATION_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Phase {
     Receiving,
+    Paused,
     Completed,
     Failed,
     Cancelled,
@@ -47,6 +50,7 @@ impl PendingUpload {
     fn create(inbox: &Path, name: &str, id: &str) -> io::Result<(Self, File)> {
         let staging = inbox.join(".pulsedrop-transfers");
         fs::create_dir_all(&staging)?;
+        let _publish = DESTINATION_LOCK.lock().unwrap();
         let destination = loop {
             let path = super::available_file_path(inbox, name);
             match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -95,7 +99,7 @@ impl Drop for PendingUpload {
     }
 }
 
-fn copy_body(
+pub(crate) fn copy_body(
     source: &mut impl Read,
     destination: &mut impl Write,
     prefix: &[u8],

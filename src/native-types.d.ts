@@ -34,7 +34,7 @@ export type ReceiveProgress = {
   size: number;
   received: number;
   speed: number;
-  phase: "started" | "receiving" | "completed" | "failed" | "cancelled";
+  phase: "started" | "receiving" | "paused" | "completed" | "failed" | "cancelled";
   error: string | null;
 };
 export type NativeEvents = {

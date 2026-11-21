@@ -3,7 +3,7 @@ function nonnegative(value) {
 }
 
 function normalize(update) {
-  if (!update || !update.transfer_id || !["receiving", "completed", "failed", "cancelled"].includes(update.phase)) return null;
+  if (!update || !update.transfer_id || !["receiving", "paused", "completed", "failed", "cancelled"].includes(update.phase)) return null;
   const size = nonnegative(update.size);
   const received = update.phase === "completed" ? size : Math.min(size, nonnegative(update.received));
   return {
@@ -45,11 +45,11 @@ export function createReceiveProgress() {
       const item = normalize(update);
       if (!item) return null;
       const previous = transfers.get(item.id);
-      if (previous && previous.phase !== "receiving") return null;
+      if (previous && !["receiving", "paused"].includes(previous.phase)) return null;
       if (previous && item.received < previous.received) return null;
       transfers.set(item.id, item);
       latest = item;
-      const terminal = [...transfers.values()].filter((entry) => entry.phase !== "receiving");
+      const terminal = [...transfers.values()].filter((entry) => !["receiving", "paused"].includes(entry.phase));
       for (const old of terminal.slice(0, Math.max(0, terminal.length - 128))) transfers.delete(old.id);
       return { item, completed: item.phase === "completed", summary: summary() };
     }

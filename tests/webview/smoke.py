@@ -1,6 +1,9 @@
 """Exercise PulseDrop in its Linux WebView with an isolated data directory."""
 import argparse
 from contextlib import suppress
+from hashlib import sha256
+from http.client import HTTPConnection
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -12,7 +15,7 @@ import tempfile
 import threading
 import time
 from uuid import uuid4
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -237,6 +240,108 @@ def check_transfers(app, directory):
     print("PASS native file selection, exact-byte transfer, progress events, and cancellation", flush=True)
 
 
+def stage_resumable_upload(app, directory):
+    app.nav("receive")
+    app.click("#toggle-receiver")
+    wait_for("receiver online", lambda: app.text("#receiver-state") == "Online")
+    port = int(app.text("#session-port"))
+    code = app.text("#session-code")
+    inbox = Path(app.text("#inbox-path"))
+    assert inbox.is_relative_to(directory)
+    chunk = b"\x87" * (4 * 1024 * 1024)
+    tail = bytes(range(256)) * 16_000
+    file = directory / "resume-smoke.bin"
+    file.write_bytes(chunk + tail)
+    transfer_id = uuid4().hex
+    with urlopen(f"http://127.0.0.1:{port}/health?code={code}", timeout=5) as response:
+        receiver = response.headers["X-PulseDrop-Resume"]
+    query = urlencode({
+        "code": code, "transfer_id": transfer_id, "name": file.name,
+        "size": file.stat().st_size, "offset": 0, "digest": sha256(b"0" * 64 + chunk).hexdigest()
+    })
+    with urlopen(Request(f"http://127.0.0.1:{port}/resume?{query}", data=chunk), timeout=10) as response:
+        assert json.load(response)["offset"] == len(chunk)
+    assert not (inbox / file.name).exists()
+    app.script("""
+      const [receiver, name, size, id] = arguments;
+      localStorage.setItem("pulsedrop.resume.v1", JSON.stringify([{
+        id, key: JSON.stringify([receiver, name, size]), cancelled: false, updated: Date.now()
+      }]));
+    """, receiver, file.name, file.stat().st_size, transfer_id)
+    return file, transfer_id, receiver, len(chunk)
+
+
+def check_resumed_upload(app, prepared):
+    file, transfer_id, receiver, offset = prepared
+    app.nav("receive")
+    app.click("#toggle-receiver")
+    wait_for("restarted receiver online", lambda: app.text("#receiver-state") == "Online")
+    wait_for("restored paused item", lambda: "saved for resume" in app.text("#activity-list"))
+    port = int(app.text("#session-port"))
+    code = app.text("#session-code")
+    inbox = Path(app.text("#inbox-path"))
+    with urlopen(f"http://127.0.0.1:{port}/health?code={code}", timeout=5) as response:
+        assert response.headers["X-PulseDrop-Resume"] == receiver
+    sent_offsets = []
+
+    class Interruption(BaseHTTPRequestHandler):
+        def exchange(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            path = urlsplit(self.path)
+            if self.command == "POST" and path.path == "/resume":
+                sent_offsets.append(int(parse_qs(path.query)["offset"][0]))
+                if len(sent_offsets) == 1:
+                    with socket.create_connection(("127.0.0.1", port), timeout=5) as receiver_socket:
+                        receiver_socket.sendall((
+                            f"POST {self.path} HTTP/1.1\r\nHost: localhost\r\n"
+                            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n"
+                        ).encode() + body[:1024])
+                    self.close_connection = True
+                    return
+            with suppress(BrokenPipeError, ConnectionResetError):
+                connection = HTTPConnection("127.0.0.1", port, timeout=20)
+                try:
+                    connection.request(self.command, self.path, body=body,
+                                       headers={"Content-Type": self.headers.get("Content-Type", "application/octet-stream")})
+                    response = connection.getresponse()
+                    self.send_response(response.status)
+                    for name, value in response.getheaders():
+                        self.send_header(name, value)
+                    self.end_headers()
+                    self.wfile.write(response.read())
+                finally:
+                    connection.close()
+
+        do_OPTIONS = do_GET = do_POST = exchange
+
+        def log_message(self, *_args):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Interruption) as proxy:
+        worker = threading.Thread(target=proxy.serve_forever, daemon=True)
+        worker.start()
+        try:
+            app.nav("send")
+            app.file(file)
+            wait_for("a reselected file", lambda: app.text("#queue-count") == "1")
+            app.fill("#peer-ip", "127.0.0.1")
+            app.fill("#peer-port", proxy.server_port)
+            app.fill("#peer-code", code)
+            app.click("#send-files")
+            wait_for("the resumed transfer to complete", lambda: app.text("#transfer-name") == "Transfer complete", timeout=30)
+        finally:
+            proxy.shutdown()
+            worker.join(timeout=3)
+
+    assert len(sent_offsets) >= 2 and set(sent_offsets) == {offset}, sent_offsets
+    query = urlencode({"code": code, "transfer_id": transfer_id})
+    with urlopen(f"http://127.0.0.1:{port}/resume?{query}", timeout=5) as response:
+        assert json.load(response)["phase"] == "completed"
+    assert (inbox / file.name).read_bytes() == file.read_bytes()
+    assert len(list(inbox.glob("resume-smoke*.bin"))) == 1
+    print("PASS persisted transfer across app restart and interrupted TCP chunk, with exact bytes", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "src-tauri/target/release/pulse_drop")
@@ -266,6 +371,11 @@ def main():
                 check_update_guard(app)
                 check_discovery(app)
                 check_transfers(app, folder)
+                partial = stage_resumable_upload(app, folder)
+                app.call("", method="DELETE")
+                app = WebView(port, args.binary.resolve())
+                wait_for("app restart", lambda: app.script("return !document.querySelector('#boot-screen')"))
+                check_resumed_upload(app, partial)
             except Exception:
                 log.seek(0)
                 print(log.read(), flush=True)

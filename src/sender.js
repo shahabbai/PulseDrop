@@ -1,10 +1,12 @@
 import { formatBytes, formatSpeed } from "./transfer-format.js";
+import { createResumableSender, ResumeCancelled, ResumePaused } from "./resumable-send.js";
 
 /** @typedef {{ip: string, port: number, code: string}} Endpoint */
-/** @typedef {{controller: AbortController, endpoint: Endpoint, cancelRequested: boolean, activeId: string | null, loaded: number, supportsCancellation: boolean, reason?: string, savedTransferId?: string, cancelPromise?: Promise<void>}} Session */
-/** @typedef {{kind?: "sending" | "sent" | "failed" | "cancelled", label?: string, progress?: number, speed?: number}} ActivityPatch */
+/** @typedef {import("./resumable-send.js").Attempt} Attempt */
+/** @typedef {{controller: AbortController, endpoint: Endpoint, cancelRequested: boolean, activeId: string | null, loaded: number, supportsCancellation: boolean, resumeReceiver?: string, attempt?: Attempt, reason?: string, savedTransferId?: string, cancelPromise?: Promise<void>}} Session */
+/** @typedef {{kind?: "sending" | "sent" | "failed" | "cancelled" | "paused", label?: string, progress?: number, speed?: number}} ActivityPatch */
 /** @typedef {ActivityPatch & {id: string, file: File, name: string, direction: "send"}} Activity */
-/** @typedef {{name?: string, loaded?: number, total?: number, totalLoaded?: number, totalBytes?: number, percent?: number, speed?: number, active?: boolean, kind?: "complete" | "failed" | "cancelled"}} Monitor */
+/** @typedef {{name?: string, loaded?: number, total?: number, totalLoaded?: number, totalBytes?: number, percent?: number, speed?: number, active?: boolean, kind?: "complete" | "failed" | "cancelled" | "paused"}} Monitor */
 
 const receiverCheckTimeoutMs = 7000;
 
@@ -48,7 +50,8 @@ function uploadTimeoutMs(fileSize) {
  * while the DOM and platform-specific file preparation stay with the caller.
  * @param {{
  *   createId: () => string,
- *   prepareBody?: (file: File, signal: AbortSignal) => Promise<ArrayBuffer>,
+ *   prepareBody?: (file: Blob, signal: AbortSignal) => Promise<ArrayBuffer>,
+ *   resumeStorage?: Storage,
  *   addActivity: (activity: Activity) => void,
  *   updateActivity: (id: string, patch: ActivityPatch) => void,
  *   updateTransferMonitor: (update: Monitor) => void,
@@ -58,11 +61,12 @@ function uploadTimeoutMs(fileSize) {
  * }} options
  */
 export function createSender({
-  createId, prepareBody, addActivity, updateActivity, updateTransferMonitor,
+  createId, prepareBody, resumeStorage, addActivity, updateActivity, updateTransferMonitor,
   onStateChange, fetch = globalThis.fetch, createRequest = () => new XMLHttpRequest()
 }) {
   /** @type {Session | null} */
   let activeSession = null;
+  const resumable = createResumableSender({ fetch, read: prepareBody, storage: resumeStorage });
 
   /**
    * @param {Endpoint} endpoint
@@ -95,7 +99,12 @@ export function createSender({
     session.reason = byReceiver ? "Cancelled by receiving device" : "Transfer cancelled";
     session.cancelPromise = (async () => {
       try {
-        if (!byReceiver && session.supportsCancellation && session.activeId) {
+        if (!byReceiver && session.attempt) {
+          session.controller.abort();
+          if (await resumable.cancel(session.attempt, session.endpoint) === "completed") {
+            session.savedTransferId = session.attempt.id;
+          }
+        } else if (!byReceiver && session.supportsCancellation && session.activeId) {
           const id = session.activeId;
           const response = await transferRequest(session.endpoint, "/cancel", id, "POST");
           if (response.ok && response.phase === "completed") session.savedTransferId = id;
@@ -120,11 +129,53 @@ export function createSender({
       if (response.status === 404 || response.status === 405) return;
       if (!response.ok) throw new Error(await response.text() || `Receiver returned HTTP ${response.status}`);
       session.supportsCancellation = response.headers.get("X-PulseDrop-Cancellation") === "1";
+      const receiver = response.headers.get("X-PulseDrop-Resume");
+      if (receiver && /^[a-f0-9]{32}$/.test(receiver) && globalThis.crypto?.subtle) session.resumeReceiver = receiver;
     } catch (error) {
       checkCancellation(session);
       if ((error instanceof Error && error.name === "AbortError") || error instanceof TypeError) throw new Error(receiverUnavailableMessage(endpoint));
       throw error;
     } finally { clearTimeout(timeout); session.controller.signal.removeEventListener("abort", abort); }
+  }
+
+  /**
+   * @param {File} file @param {Endpoint} endpoint @param {string} activityId
+   * @param {{completedBytes: number, totalBytes: number}} context @param {Session} session
+   */
+  async function sendResumable(file, endpoint, activityId, context, session) {
+    const attempt = await resumable.begin(file, session.resumeReceiver || "", endpoint);
+    session.attempt = attempt;
+    session.activeId = attempt.id;
+    if (session.cancelRequested) {
+      if (await resumable.cancel(attempt, endpoint).catch(() => null) === "completed") return;
+      checkCancellation(session);
+    }
+    try {
+      await resumable.send(file, endpoint, attempt, session.controller.signal, {
+        waiting: (label) => {
+          updateActivity(activityId, { label, speed: 0 });
+          updateTransferMonitor({ name: label, totalLoaded: session.loaded,
+            totalBytes: context.totalBytes, speed: 0, active: true });
+        },
+        progress(loaded, speed) {
+          session.loaded = context.completedBytes + loaded;
+          const percent = context.totalBytes ? 100 * session.loaded / context.totalBytes : 0;
+          updateActivity(activityId, {
+            label: formatBytes(loaded) + " of " + formatBytes(file.size) + " · " + formatSpeed(speed),
+            progress: file.size ? Math.min(99, 100 * loaded / file.size) : 0, speed
+          });
+          updateTransferMonitor({
+            name: file.name, loaded, total: file.size, totalLoaded: session.loaded,
+            totalBytes: context.totalBytes, percent: Math.min(99, percent), speed, active: true
+          });
+        }
+      });
+    } catch (error) {
+      if (error instanceof ResumeCancelled) await cancel(true);
+      if (session.cancelPromise) await session.cancelPromise;
+      if (session.savedTransferId !== attempt.id) throw error;
+    }
+    updateActivity(activityId, { kind: "sent", label: "Sent", progress: 100, speed: 0 });
   }
 
   /** @param {File} file @param {string} activityId @param {Session} session */
@@ -336,7 +387,7 @@ export function createSender({
     activeSession = session;
     onStateChange();
     let sent = 0, failed = 0, completedBytes = 0;
-    let error = "";
+    let error = "", paused = false;
     updateTransferMonitor({ name: "Checking receiver", totalBytes, percent: 0, active: true });
     try {
       await checkReceiver(endpoint, session);
@@ -344,22 +395,28 @@ export function createSender({
         checkCancellation(session);
         const activityId = createId();
         const transferId = createId();
-        session.activeId = transferId;
+        session.activeId = session.resumeReceiver ? null : transferId;
         session.loaded = completedBytes;
         addActivity({ id: activityId, file, name: file.name, label: "Sending", kind: "sending", direction: "send", progress: 0, speed: 0 });
         updateTransferMonitor({ name: file.name, totalLoaded: completedBytes, totalBytes, percent: totalBytes ? completedBytes / totalBytes * 100 : 0, speed: 0, active: true });
         try {
-          await sendFile(file, endpoint, activityId, { completedBytes, totalBytes }, session, transferId);
+          if (session.resumeReceiver) {
+            await sendResumable(file, endpoint, activityId, { completedBytes, totalBytes }, session);
+          } else {
+            await sendFile(file, endpoint, activityId, { completedBytes, totalBytes }, session, transferId);
+          }
           sent += 1;
           completedBytes += file.size;
         } catch (cause) {
           const cancelled = session.cancelRequested;
           const message = messageOf(cause);
-          updateActivity(activityId, { kind: cancelled ? "cancelled" : "failed", label: message, speed: 0 });
+          paused = cause instanceof ResumePaused;
+          updateActivity(activityId, { kind: cancelled ? "cancelled" : paused ? "paused" : "failed", label: message, speed: 0 });
           if (cancelled) break;
           failed += 1;
           error = message;
-        } finally { session.activeId = null; }
+          if (session.resumeReceiver) break;
+        } finally { session.activeId = null; session.attempt = undefined; }
       }
     } catch (cause) {
       if (!session.cancelRequested) {
@@ -377,12 +434,12 @@ export function createSender({
     const cancelled = session.cancelRequested && !complete;
     const totalLoaded = complete ? totalBytes : Math.min(totalBytes, session.loaded || completedBytes);
     updateTransferMonitor({
-      name: complete ? "Transfer complete" : cancelled ? session.reason || "Transfer cancelled" : "Transfer failed",
+      name: complete ? "Transfer complete" : cancelled ? session.reason || "Transfer cancelled" : paused ? "Transfer paused" : "Transfer failed",
       totalLoaded, totalBytes,
       percent: complete ? 100 : Math.min(99, totalBytes ? totalLoaded / totalBytes * 100 : 0),
-      speed: 0, kind: complete ? "complete" : cancelled ? "cancelled" : "failed", active: false
+      speed: 0, kind: complete ? "complete" : cancelled ? "cancelled" : paused ? "paused" : "failed", active: false
     });
-    return { complete, cancelled, sent, failed, error };
+    return { complete, cancelled, sent, failed, error, ...(paused && !cancelled ? { paused } : {}) };
   }
 
   return { send, cancel, busy: () => activeSession !== null, cancelling: () => Boolean(activeSession?.cancelRequested) };

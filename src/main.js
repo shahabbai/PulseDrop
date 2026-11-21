@@ -245,6 +245,7 @@ function updateTransferMonitor(details = {}) {
   els.transferProgress.setAttribute("aria-valuenow", String(Math.round(percent)));
   const announcement = details.kind === "complete" ? "Transfer complete. All files sent."
     : details.kind === "cancelled" ? "Transfer cancelled. Completed files were kept."
+    : details.kind === "paused" ? "Transfer paused. Reconnect to the receiver to resume."
     : details.kind === "failed" ? "Transfer failed. Check the connection and try again."
     : "Transfer in progress.";
   if (els.transferAnnouncement.textContent !== announcement) els.transferAnnouncement.textContent = announcement;
@@ -326,6 +327,7 @@ function setView(mode, options = {}) {
 function syncSendControls() {
   const sending = sender.busy();
   const cancelling = sender.cancelling();
+  const paused = state.files.some((file) => queuedFileStates.get(file)?.kind === "paused");
   const focusWasSend = document.activeElement === els.sendFiles;
   const focusWasCancel = document.activeElement === els.cancelSend;
   els.cancelSend.hidden = !sending;
@@ -340,8 +342,9 @@ function syncSendControls() {
   for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.disabled = sending;
   els.refreshReceivers.disabled = !invoke || sending || state.discoveryScanning;
   els.sendFiles.setAttribute("aria-busy", String(sending));
-  els.sendFiles.querySelector("span").textContent = sending ? "Sending…" : "Send files";
+  els.sendFiles.querySelector("span").textContent = sending ? "Sending…" : paused ? "Resume transfer" : "Send files";
   els.sendHint.textContent = sending ? "Keep both devices open until the transfer finishes."
+    : paused ? "Reconnect to the receiver and check its current pairing code before resuming."
     : state.files.length ? "Choose a receiver and enter its pairing code." : "Add files and choose a receiver to get started.";
   document.querySelectorAll(".remove-file, .receiver-choice").forEach((button) => { button.disabled = sending; });
   hotspotUI.refresh();
@@ -359,6 +362,7 @@ function updateQueuedFile(file, activity) {
   row.dataset.status = activity.kind || "queued";
   row.querySelector(".queue-file-state").textContent = activity.kind === "sent" ? "Sent"
     : activity.kind === "cancelled" ? "Cancelled · retry available"
+    : activity.kind === "paused" ? "Paused · resume available"
     : activity.kind === "failed" ? "Failed · retry available"
     : activity.kind === "sending" ? `Sending ${Math.round(clampPercent(activity.progress || 0))}%` : "Queued";
 }
@@ -499,7 +503,7 @@ function updateActivity(id, patch) {
 
 function trimActivities() {
   let recent = 0;
-  state.activities = state.activities.filter((item) => ["receiving", "sending"].includes(item.kind) || recent++ < 12);
+  state.activities = state.activities.filter((item) => ["receiving", "sending", "paused"].includes(item.kind) || recent++ < 12);
 }
 
 function handleReceiveProgress(payload) {
@@ -511,6 +515,7 @@ function handleReceiveProgress(payload) {
     ...item,
     label: item.kind === "cancelled" ? "Cancelled · incomplete file removed"
       : item.kind === "received" ? `Received ${formatBytes(item.size)}`
+      : item.kind === "paused" ? `Paused · ${formatBytes(item.received)} saved for resume`
       : item.kind === "failed" ? item.error || "Transfer interrupted. Ask the sender to retry."
       : `Receiving ${formatBytes(item.received)} of ${formatBytes(item.size)}`
   };
@@ -528,28 +533,30 @@ function handleReceiveProgress(payload) {
   els.receiveMonitor.classList.toggle("is-complete", summary.kind === "received");
   els.receiveMonitor.classList.toggle("is-failed", summary.kind === "failed");
   els.receiveName.textContent = summary.name;
-  els.receiveLabel.textContent = summary.kind === "receiving" ? "Receiving" : summary.kind === "received" ? "File received" : summary.kind === "cancelled" ? "Transfer cancelled" : "Transfer interrupted";
+  els.receiveLabel.textContent = summary.kind === "receiving" ? "Receiving" : summary.kind === "received" ? "File received" : summary.kind === "cancelled" ? "Transfer cancelled" : summary.kind === "paused" ? "Transfer paused" : "Transfer interrupted";
   els.receivePercent.textContent = `${Math.round(summary.progress)}%`;
   els.receiveProgress.setAttribute("aria-valuenow", String(Math.round(summary.progress)));
   els.receiveFill.style.width = `${summary.progress}%`;
   els.receiveBytes.textContent = `${formatBytes(summary.received)} of ${formatBytes(summary.size)}`;
   els.receiveSpeed.textContent = summary.kind === "receiving" ? formatSpeed(summary.speed)
-    : summary.kind === "received" ? "Saved to Inbox" : summary.kind === "cancelled" ? "Incomplete file removed" : "Ask the sender to retry";
+    : summary.kind === "received" ? "Saved to Inbox" : summary.kind === "cancelled" ? "Incomplete file removed" : summary.kind === "paused" ? "Waiting for the sender to resume" : "Ask the sender to retry";
   const announcement = summary.kind === "receiving" ? `Receiving ${summary.activeCount} ${summary.activeCount === 1 ? "file" : "files"}.`
-    : summary.kind === "received" ? "File received and saved to Inbox." : summary.kind === "cancelled" ? "Incoming transfer cancelled. Incomplete file removed." : "An incoming transfer was interrupted.";
+    : summary.kind === "received" ? "File received and saved to Inbox." : summary.kind === "cancelled" ? "Incoming transfer cancelled. Incomplete file removed." : summary.kind === "paused" ? "Transfer paused. Confirmed bytes were saved." : "An incoming transfer was interrupted.";
   if (els.receiveAnnouncement.textContent !== announcement) els.receiveAnnouncement.textContent = announcement;
   hotspotUI.refresh();
 }
 
 async function cancelIncoming(transferId = null) {
-  const ids = state.activities.filter((item) => item.direction === "receive" && item.kind === "receiving" && (!transferId || item.id === transferId)).map((item) => item.id);
+  const ids = state.activities.filter((item) => item.direction === "receive"
+    && (item.kind === "receiving" || (transferId && item.kind === "paused"))
+    && (!transferId || item.id === transferId)).map((item) => item.id);
   if (!ids.length) return;
   ids.forEach((id) => receiveCancellation.add(id));
   const active = state.activities.filter((item) => item.direction === "receive" && item.kind === "receiving");
   els.cancelReceive.disabled = active.every((item) => receiveCancellation.has(item.id));
   els.cancelReceive.textContent = els.cancelReceive.disabled ? "Cancelling…" : active.length > 1 ? "Cancel all incoming" : "Cancel file";
   renderActivities();
-  try { await invoke("cancel_receive", { transferId }); }
+  try { await Promise.all(ids.map((id) => invoke("cancel_receive", { transferId: id }))); }
   catch (error) {
     ids.forEach((id) => receiveCancellation.delete(id));
     els.cancelReceive.disabled = false;
@@ -587,12 +594,13 @@ function renderActivities() {
     speed.hidden = !activity.speed;
     speed.textContent = activity.speed ? formatSpeed(activity.speed) : "";
     const button = row.querySelector("button");
-    const canCancel = activity.direction === "receive" && activity.kind === "receiving";
+    const canCancel = activity.direction === "receive" && Boolean(state.receiver)
+      && ["receiving", "paused"].includes(activity.kind);
     if (!canCancel && document.activeElement === button) document.querySelector("#receive-title").focus({ preventScroll: true });
     button.hidden = !canCancel;
     button.disabled = receiveCancellation.has(activity.id);
-    button.textContent = button.disabled ? "Cancelling…" : "Cancel";
-    button.setAttribute("aria-label", `Cancel receiving ${activity.name}`);
+    button.textContent = button.disabled ? "Cancelling…" : activity.kind === "paused" ? "Discard" : "Cancel";
+    button.setAttribute("aria-label", `${activity.kind === "paused" ? "Discard saved transfer" : "Cancel receiving"} ${activity.name}`);
     const track = row.querySelector(".progress-track");
     track.setAttribute("aria-label", `${activity.direction === "receive" ? "Incoming" : "Outgoing"} transfer: ${activity.name}`);
     track.setAttribute("aria-valuenow", String(progress));
@@ -667,6 +675,7 @@ async function toggleReceiver() {
       showToast("Receiver is online");
     }
     renderReceiver();
+    renderActivities();
   } catch (error) {
     showToast(String(error));
     els.receiverDiscoveryStatus.hidden = false;
@@ -742,7 +751,11 @@ async function sendSelectedFiles() {
   restoreSendFocus = false;
   const result = await sender.send(queue, endpoint);
   if (!result) return;
-  const { cancelled, complete, sent, failed, error } = result;
+  const { cancelled, complete, sent, failed, error, paused } = result;
+  if (paused) {
+    state.files = state.files.filter((file) => queuedFileStates.get(file)?.kind !== "sent");
+    renderFiles();
+  }
   if (cancelled) {
     for (const file of queue) {
       const previous = queuedFileStates.get(file);
@@ -872,8 +885,11 @@ function bindEvents() {
   els.dropZone.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
 }
 
+let resumeStorage;
+try { resumeStorage = window.localStorage; } catch { /* Keep transfer state in memory. */ }
 const sender = createSender({
   createId,
+  resumeStorage,
   prepareBody: isAndroidRuntime ? readFileBody : undefined,
   addActivity,
   updateActivity,

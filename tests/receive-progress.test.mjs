@@ -57,6 +57,16 @@ test("stale byte counts cannot move progress backwards", () => {
   assert.equal(model.accept({ ...update, received: 250 }), null);
 });
 
+test("a paused transfer can resume at its saved byte count and complete once", () => {
+  const model = createReceiveProgress();
+  const paused = model.accept({ ...update, received: 500, phase: "paused" });
+  assert.equal(paused.summary.activeCount, 0);
+  assert.equal(paused.item.received, 500);
+  assert.equal(model.accept({ ...update, received: 500 }).summary.activeCount, 1);
+  assert.equal(model.accept({ ...update, phase: "completed" }).completed, true);
+  assert.equal(model.accept({ ...update, received: 750, phase: "paused" }), null);
+});
+
 test("empty files finish at 100 percent without invalid numeric values", () => {
   const model = createReceiveProgress();
   assert.equal(model.accept({ ...update, size: 0 }).summary.progress, 0);
