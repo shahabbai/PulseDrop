@@ -13,6 +13,15 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven {
+            // Android Lint pulls these groups from Maven Central. Keep a mirror for repository misses.
+            name = "GoogleMavenCentralMirror"
+            url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+            content {
+                includeGroup("com.google.errorprone")
+                includeGroup("org.apache.httpcomponents")
+            }
+        }
     }
 
     configurations.configureEach {
