@@ -74,6 +74,22 @@ test("a lost chunk acknowledgement is recovered without resending acknowledged b
   assert.deepEqual(service.posted, [0, chunkSize]);
 });
 
+test("a native dropped file is read one resumable chunk at a time", async () => {
+  const service = fixture();
+  const sender = service.sender();
+  const ranges = [];
+  const dropped = {
+    name: file.name, size: file.size,
+    readRange(start, end) {
+      ranges.push([start, end]);
+      return file.slice(start, end).arrayBuffer();
+    }
+  };
+  await sender.send(dropped, endpoint, await sender.begin(dropped, receiver, endpoint), signal(), noProgress);
+  assert.deepEqual(ranges, [[0, chunkSize], [chunkSize, file.size]]);
+  assert.deepEqual(service.posted, [0, chunkSize]);
+});
+
 test("reconnect retry finishes and a mismatched selected file cannot append to saved chunks", async () => {
   const service = fixture();
   const first = service.sender([0, 0]);

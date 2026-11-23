@@ -1,11 +1,12 @@
 import { formatBytes, formatSpeed } from "./transfer-format.js";
-import { createResumableSender, ResumeCancelled, ResumePaused } from "./resumable-send.js";
+import { CHUNK, createResumableSender, ResumeCancelled, ResumePaused } from "./resumable-send.js";
 
 /** @typedef {{ip: string, port: number, code: string}} Endpoint */
 /** @typedef {import("./resumable-send.js").Attempt} Attempt */
 /** @typedef {{controller: AbortController, endpoint: Endpoint, cancelRequested: boolean, activeId: string | null, loaded: number, supportsCancellation: boolean, resumeReceiver?: string, attempt?: Attempt, reason?: string, savedTransferId?: string, cancelPromise?: Promise<void>}} Session */
 /** @typedef {{kind?: "sending" | "sent" | "failed" | "cancelled" | "paused", label?: string, progress?: number, speed?: number}} ActivityPatch */
-/** @typedef {ActivityPatch & {id: string, file: File, name: string, direction: "send"}} Activity */
+/** @typedef {import("./native-types").SendFile} SendFile */
+/** @typedef {ActivityPatch & {id: string, file: SendFile, name: string, direction: "send"}} Activity */
 /** @typedef {{name?: string, loaded?: number, total?: number, totalLoaded?: number, totalBytes?: number, percent?: number, speed?: number, active?: boolean, kind?: "complete" | "failed" | "cancelled" | "paused"}} Monitor */
 
 const receiverCheckTimeoutMs = 7000;
@@ -139,7 +140,7 @@ export function createSender({
   }
 
   /**
-   * @param {File} file @param {Endpoint} endpoint @param {string} activityId
+   * @param {SendFile} file @param {Endpoint} endpoint @param {string} activityId
    * @param {{completedBytes: number, totalBytes: number}} context @param {Session} session
    */
   async function sendResumable(file, endpoint, activityId, context, session) {
@@ -178,9 +179,17 @@ export function createSender({
     updateActivity(activityId, { kind: "sent", label: "Sent", progress: 100, speed: 0 });
   }
 
-  /** @param {File} file @param {string} activityId @param {Session} session */
+  /** @param {SendFile} file @param {string} activityId @param {Session} session */
   async function uploadBodyForFile(file, activityId, session) {
     checkCancellation(session);
+    if ("readRange" in file) {
+      updateActivity(activityId, { label: "Preparing file", progress: 0 });
+      const parts = [];
+      for (let offset = 0; offset < file.size; offset += CHUNK) {
+        parts.push(await file.readRange(offset, Math.min(offset + CHUNK, file.size), session.controller.signal));
+      }
+      return new Blob(parts, { type: file.type });
+    }
     if (!prepareBody) return file;
     updateActivity(activityId, { label: "Preparing file", progress: 0 });
     try { return await prepareBody(file, session.controller.signal); }
@@ -188,7 +197,7 @@ export function createSender({
   }
 
   /**
-   * @param {File} file
+   * @param {SendFile} file
    * @param {Endpoint} endpoint
    * @param {string} activityId
    * @param {{completedBytes: number, totalBytes: number}} progressContext
@@ -377,7 +386,7 @@ export function createSender({
     });
   }
 
-  /** @param {File[]} files @param {Endpoint} endpoint */
+  /** @param {SendFile[]} files @param {Endpoint} endpoint */
   async function send(files, endpoint) {
     if (activeSession || !files.length) return null;
     const queue = [...files];

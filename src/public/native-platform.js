@@ -66,6 +66,43 @@
         else tauri?.window?.getCurrentWindow().setTheme(theme).catch(() => {});
       } catch { /* Native appearance is optional. Keep the web theme usable. */ }
     },
+    subscribeFileDrops(onDrag, onDrop) {
+      if (!invoke || !listen || android || ios) return () => {};
+      let disposed = false;
+      const subscriptions = [
+        listen("tauri://drag-enter", ({ payload }) => {
+          if (!disposed) onDrag(payload.paths.length > 0);
+        }),
+        listen("tauri://drag-leave", () => {
+          if (!disposed) onDrag(false);
+        }),
+        listen("pulsedrop-file-drop", ({ payload }) => {
+          const files = payload.files.map(({ id, name, size, lastModified }) => ({
+            name, size, lastModified, type: "application/octet-stream",
+            /** @param {number} start @param {number} end @param {AbortSignal} signal */
+            async readRange(start, end, signal) {
+              signal.throwIfAborted();
+              const bytes = await invoke("read_dropped_file", { id, offset: start, length: end - start });
+              signal.throwIfAborted();
+              return bytes instanceof ArrayBuffer ? bytes : Uint8Array.from(bytes).buffer;
+            },
+            release() {
+              void invoke("release_dropped_file", { id }).catch(() => {});
+            }
+          }));
+          if (disposed) {
+            files.forEach((file) => file.release());
+            return;
+          }
+          onDrag(false);
+          onDrop(files, payload.skipped);
+        })
+      ].map((registration) => registration.catch((error) => console.warn("Could not subscribe to desktop file drops", error)));
+      return () => {
+        disposed = true;
+        for (const registration of subscriptions) void registration.then((stop) => stop?.());
+      };
+    },
     subscribeReceiver(onProgress, makeId) {
       let disposed = false;
       /** @type {import("../native-types").Unlisten[]} */

@@ -19,6 +19,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 mod camera;
 mod discovery;
+#[cfg(desktop)]
+mod dropped_files;
 mod hotspot;
 mod network;
 mod receive;
@@ -1434,10 +1436,20 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(updates::Updates::default());
+        .manage(updates::Updates::default())
+        .manage(dropped_files::DroppedFiles::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                dropped_files::queue_window_drop(window, paths.clone());
+            }
+        });
 
     builder
         .invoke_handler(tauri::generate_handler![
+            #[cfg(desktop)]
+            dropped_files::read_dropped_file,
+            #[cfg(desktop)]
+            dropped_files::release_dropped_file,
             #[cfg(desktop)]
             updates::available_update,
             #[cfg(desktop)]

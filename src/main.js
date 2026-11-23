@@ -296,6 +296,7 @@ function setView(mode, options = {}) {
   const isHome = nextView === "home";
   if (state.activeView !== nextView) state.scrollPositions[state.activeView] = els.mainContent.scrollTop;
   state.activeView = nextView;
+  if (nextView !== "send") els.dropZone.classList.remove("dragging");
   hotspotUI.viewChanged(nextView);
   updateDiscoveryActivity();
 
@@ -339,6 +340,7 @@ function syncSendControls() {
   if (!sending && focusWasCancel) els.sendFiles.focus({ preventScroll: true });
   els.clearFiles.disabled = sending || state.files.length === 0;
   els.fileInput.disabled = sending;
+  if (sending) els.dropZone.classList.remove("dragging");
   for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.disabled = sending;
   els.refreshReceivers.disabled = !invoke || sending || state.discoveryScanning;
   els.sendFiles.setAttribute("aria-busy", String(sending));
@@ -397,6 +399,7 @@ function renderFiles() {
       </button>
     `;
     row.querySelector("button").addEventListener("click", () => {
+      file.release?.();
       state.files.splice(index, 1);
       renderFiles();
       const next = els.fileList.querySelectorAll(".remove-file")[Math.min(index, state.files.length - 1)];
@@ -538,7 +541,7 @@ function handleReceiveProgress(payload) {
   els.receiveProgress.setAttribute("aria-valuenow", String(Math.round(summary.progress)));
   els.receiveFill.style.width = `${summary.progress}%`;
   els.receiveBytes.textContent = `${formatBytes(summary.received)} of ${formatBytes(summary.size)}`;
-  els.receiveSpeed.textContent = summary.kind === "receiving" ? formatSpeed(summary.speed)
+  els.receiveSpeed.textContent = summary.kind === "receiving" ? (summary.speed > 0 ? formatSpeed(summary.speed) : "Measuring speed…")
     : summary.kind === "received" ? "Saved to Inbox" : summary.kind === "cancelled" ? "Incomplete file removed" : summary.kind === "paused" ? "Waiting for the sender to resume" : "Ask the sender to retry";
   const announcement = summary.kind === "receiving" ? `Receiving ${summary.activeCount} ${summary.activeCount === 1 ? "file" : "files"}.`
     : summary.kind === "received" ? "File received and saved to Inbox." : summary.kind === "cancelled" ? "Incoming transfer cancelled. Incomplete file removed." : summary.kind === "paused" ? "Transfer paused. Confirmed bytes were saved." : "An incoming transfer was interrupted.";
@@ -612,15 +615,19 @@ function renderActivities() {
 }
 
 function addFiles(fileList) {
-  if (sender.busy()) return;
   const incoming = Array.from(fileList || []);
+  if (sender.busy()) {
+    incoming.forEach((file) => file.release?.());
+    return;
+  }
+  if (!incoming.length) return;
   const existing = new Set(state.files.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
   for (const file of incoming) {
     const key = `${file.name}-${file.size}-${file.lastModified}`;
     if (!existing.has(key)) {
       state.files.push(file);
       existing.add(key);
-    }
+    } else file.release?.();
   }
   renderFiles();
 }
@@ -753,7 +760,11 @@ async function sendSelectedFiles() {
   if (!result) return;
   const { cancelled, complete, sent, failed, error, paused } = result;
   if (paused) {
-    state.files = state.files.filter((file) => queuedFileStates.get(file)?.kind !== "sent");
+    state.files = state.files.filter((file) => {
+      if (queuedFileStates.get(file)?.kind !== "sent") return true;
+      file.release?.();
+      return false;
+    });
     renderFiles();
   }
   if (cancelled) {
@@ -839,6 +850,7 @@ function bindEvents() {
     els.fileInput.value = "";
   });
   els.clearFiles.addEventListener("click", () => {
+    state.files.forEach((file) => file.release?.());
     state.files = [];
     els.fileInput.value = "";
     renderFiles();
@@ -868,21 +880,24 @@ function bindEvents() {
   els.copyPort.addEventListener("click", () => copyText(els.sessionPort.textContent, "Port"));
   els.copyCode.addEventListener("click", () => copyText(els.sessionCode.textContent, "Code"));
 
-  ["dragenter", "dragover"].forEach((name) => {
-    els.dropZone.addEventListener(name, (event) => {
-      event.preventDefault();
-      els.dropZone.classList.add("dragging");
-    });
+  document.addEventListener("dragover", (event) => {
+    const types = event.dataTransfer?.types ?? [];
+    if (!types.includes("Files") && !types.includes("text/uri-list")) return;
+    event.preventDefault();
+    const ready = state.activeView === "send" && !sender.busy();
+    els.dropZone.classList.toggle("dragging", ready);
+    event.dataTransfer.dropEffect = ready ? "copy" : "none";
   });
-
-  ["dragleave", "drop"].forEach((name) => {
-    els.dropZone.addEventListener(name, (event) => {
-      event.preventDefault();
-      els.dropZone.classList.remove("dragging");
-    });
+  document.addEventListener("dragleave", (event) => {
+    if (!event.relatedTarget) els.dropZone.classList.remove("dragging");
   });
-
-  els.dropZone.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
+  document.addEventListener("drop", (event) => {
+    const { files, types } = event.dataTransfer ?? {};
+    if (!files?.length && !types?.includes("text/uri-list")) return;
+    event.preventDefault();
+    els.dropZone.classList.remove("dragging");
+    if (state.activeView === "send") addFiles(files);
+  });
 }
 
 let resumeStorage;
@@ -980,9 +995,30 @@ if (native.updates?.check) {
 }
 
 let stopReceiveEvents = native.subscribeReceiver(handleReceiveProgress, createId);
-window.addEventListener("pagehide", () => stopReceiveEvents());
+function subscribeFileDrops() {
+  return native.subscribeFileDrops(
+    (dragging) => els.dropZone.classList.toggle("dragging", dragging && state.activeView === "send" && !sender.busy()),
+    (files, skipped) => {
+      if (state.activeView !== "send" || sender.busy()) {
+        files.forEach((file) => file.release());
+        return;
+      }
+      addFiles(files);
+      if (skipped) showToast("Some items could not be added. Drop individual, readable files.");
+    }
+  );
+}
+let stopFileDrops = subscribeFileDrops();
+window.addEventListener("pagehide", (event) => {
+  stopReceiveEvents();
+  stopFileDrops();
+  if (!event.persisted) state.files.forEach((file) => file.release?.());
+});
 window.addEventListener("pageshow", (event) => {
-  if (event.persisted) stopReceiveEvents = native.subscribeReceiver(handleReceiveProgress, createId);
+  if (event.persisted) {
+    stopReceiveEvents = native.subscribeReceiver(handleReceiveProgress, createId);
+    stopFileDrops = subscribeFileDrops();
+  }
 });
 
 

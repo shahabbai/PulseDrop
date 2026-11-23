@@ -86,3 +86,45 @@ test("desktop and Android use their native updater and the browser has none", as
   assert.equal(platform().updates, undefined);
   assert.equal(platform({ __TAURI__, navigator: { userAgent: "iPhone" } }).updates, undefined);
 });
+
+test("desktop drops expose bounded file reads by ID and release dropped files", async () => {
+  const callbacks = new Map(), removed = [], commands = [];
+  const __TAURI__ = {
+    event: { listen: async (name, callback) => {
+      callbacks.set(name, callback);
+      return () => removed.push(name);
+    } },
+    core: { invoke: async (name, { id, offset, length }) => {
+      commands.push([name, id, offset, length]);
+      return [2, 3];
+    } }
+  };
+  const hover = [], batches = [];
+  const dispose = platform({ __TAURI__ }).subscribeFileDrops(
+    (dragging) => hover.push(dragging),
+    (files, skipped) => batches.push({ files, skipped })
+  );
+  callbacks.get("tauri://drag-enter")({ payload: { paths: ["/tmp/file"] } });
+  callbacks.get("pulsedrop-file-drop")({ payload: {
+    files: [{ id: 12, name: "file", size: 5, lastModified: 123 }],
+    skipped: 1
+  } });
+  assert.deepEqual(hover, [true, false]);
+  assert.equal(batches[0].skipped, 1);
+  const [file] = batches[0].files;
+  assert.equal(file.name, "file");
+  assert.equal(file.lastModified, 123);
+  const controller = new AbortController();
+  const bytes = await file.readRange(2, 4, controller.signal);
+  assert.deepEqual([...new Uint8Array(bytes)], [2, 3]);
+  controller.abort();
+  await assert.rejects(file.readRange(0, 1, controller.signal), { name: "AbortError" });
+  file.release();
+  dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(commands, [["read_dropped_file", 12, 2, 2], ["release_dropped_file", 12, undefined, undefined]]);
+  assert.equal(removed.length, 3);
+  callbacks.clear();
+  platform({ __TAURI__, navigator: { userAgent: "Android" } }).subscribeFileDrops(() => {}, () => {});
+  assert.equal(callbacks.size, 0);
+});

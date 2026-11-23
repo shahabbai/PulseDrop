@@ -1,5 +1,5 @@
 // Keep the same chunk size and digest format as the receiver.
-const CHUNK = 4 * 1024 * 1024;
+export const CHUNK = 4 * 1024 * 1024;
 const EMPTY_DIGEST = "0".repeat(64);
 const RETENTION = 7 * 24 * 60 * 60 * 1000;
 const RETRY_DELAYS = [1000, 2000, 4000, 8000, 8000, 8000, 8000];
@@ -7,6 +7,7 @@ const RETRY_DELAYS = [1000, 2000, 4000, 8000, 8000, 8000, 8000];
 /** @typedef {{ip: string, port: number, code: string}} Endpoint */
 /** @typedef {{id: string, key: string, cancelled: boolean, updated: number}} Attempt */
 /** @typedef {{phase: "paused" | "completed" | "cancelled", offset: number, digest: string}} Checkpoint */
+/** @typedef {import("./native-types").SendFile} SendFile */
 
 export class ResumeCancelled extends Error {}
 export class ResumePaused extends Error {}
@@ -114,7 +115,7 @@ export function createResumableSender({ fetch, read = (blob) => blob.arrayBuffer
     return result?.phase;
   }
 
-  /** @param {File} file @param {string} receiver @param {Endpoint} endpoint */
+  /** @param {SendFile} file @param {string} receiver @param {Endpoint} endpoint */
   async function begin(file, receiver, endpoint) {
     const key = JSON.stringify([receiver, file.name, file.size]);
     const previous = saved.get(key);
@@ -135,10 +136,15 @@ export function createResumableSender({ fetch, read = (blob) => blob.arrayBuffer
   }
 
   /**
-   * @param {File} file @param {Endpoint} endpoint @param {Attempt} attempt @param {AbortSignal} signal
+   * @param {SendFile} file @param {Endpoint} endpoint @param {Attempt} attempt @param {AbortSignal} signal
    * @param {{progress: (bytes: number, speed: number) => void, waiting: (message: string) => void}} report
    */
   async function send(file, endpoint, attempt, signal, report) {
+    /** @param {number} start @param {number} end */
+    function readRange(start, end) {
+      return "readRange" in file ? file.readRange(start, end, signal) : read(file.slice(start, end), signal);
+    }
+
     /** @template T @param {() => Promise<T>} operation */
     async function retry(operation) {
       for (let index = 0; ; index++) {
@@ -176,7 +182,7 @@ export function createResumableSender({ fetch, read = (blob) => blob.arrayBuffer
     if (offset || existing?.phase === "completed") report.waiting("Verifying saved chunks…");
     for (let start = 0; start < offset; start += CHUNK) {
       signal.throwIfAborted();
-      digest = await extendDigest(digest, await read(file.slice(start, Math.min(offset, start + CHUNK)), signal));
+      digest = await extendDigest(digest, await readRange(start, Math.min(offset, start + CHUNK)));
     }
     if (existing && file.size === 0 && existing.digest !== EMPTY_DIGEST) {
       digest = await extendDigest(digest, new ArrayBuffer(0));
@@ -189,7 +195,7 @@ export function createResumableSender({ fetch, read = (blob) => blob.arrayBuffer
     while (!complete) {
       signal.throwIfAborted();
       const end = Math.min(offset + CHUNK, file.size);
-      const bytes = await read(file.slice(offset, end), signal);
+      const bytes = await readRange(offset, end);
       const commitOnly = offset === file.size && file.size > 0;
       const nextDigest = commitOnly ? digest : await extendDigest(digest, bytes);
       const started = performance.now();

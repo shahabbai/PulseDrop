@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.3
+
+- Keep the receive speed steady between resumable chunks.
+- Match the Light and Dark theme picker to the Claymorphism design.
+- Restore desktop file drag and drop on the Send screen.
+- Add a Maven Central mirror fallback for Android release builds.
+
 ## 0.9.2
 
 - Refresh the PulseDrop app and launcher icons with a Claymorphism design on Ubuntu, Windows, macOS, and Android.

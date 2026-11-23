@@ -37,9 +37,19 @@ export type ReceiveProgress = {
   phase: "started" | "receiving" | "paused" | "completed" | "failed" | "cancelled";
   error: string | null;
 };
+type DroppedFileInfo = { id: number; name: string; size: number; lastModified: number };
+export type DroppedFile = Omit<DroppedFileInfo, "id"> & {
+  type: string;
+  readRange(start: number, end: number, signal: AbortSignal): Promise<ArrayBuffer>;
+  release(): void;
+};
+export type SendFile = File | DroppedFile;
 export type NativeEvents = {
   "file-receive-progress": ReceiveProgress;
   "file-received": { transfer_id?: string; name: string; size: number; path: string };
+  "tauri://drag-enter": { paths: string[] };
+  "tauri://drag-leave": null;
+  "pulsedrop-file-drop": { files: DroppedFileInfo[]; skipped: number };
 };
 export type HotspotSession = {
   role: "host" | "sender";
@@ -75,6 +85,8 @@ type NativeCommands = {
   stop_receiver: Command<[], void>;
   cancel_receive: Command<[{ transferId: string | null }], void>;
   open_inbox: Command<[], void>;
+  read_dropped_file: Command<[{ id: number; offset: number; length: number }], ArrayBuffer | number[]>;
+  release_dropped_file: Command<[{ id: number }], void>;
   windows_diagnostics: Command<[], Diagnostics>;
   fix_windows_network_profile: Command<[], string>;
   fix_windows_firewall: Command<[], string>;
@@ -123,6 +135,7 @@ export interface NativePlatform {
   openInbox(path: string): Promise<"downloads" | "manual" | undefined>;
   setTheme(theme: Theme): void;
   subscribeReceiver(onProgress: (progress: ReceiveProgress) => void, makeId: () => string): Unlisten;
+  subscribeFileDrops(onDrag: (dragging: boolean) => void, onDrop: (files: DroppedFile[], skipped: number) => void): Unlisten;
 }
 
 declare global {

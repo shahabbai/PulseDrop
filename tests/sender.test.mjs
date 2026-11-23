@@ -64,3 +64,14 @@ test("a synchronous upload failure releases the sender so another send can compl
   assert.equal(retry.complete, true);
   assert.equal(progress.at(-1).percent, 100);
 });
+
+test("a native dropped file can be sent to a receiver using the original upload protocol", async () => {
+  const { sender, uploadStarted } = fixture({ send() { this.status = 200; this.onload(); } });
+  const file = {
+    name: "dropped.txt", size: 4, type: "application/octet-stream",
+    async readRange(start, end) { return new TextEncoder().encode("drop".slice(start, end)).buffer; }
+  };
+  const result = await sender.send([file], endpoint);
+  assert.equal(result.complete, true);
+  assert.equal(await (await uploadStarted).text(), "drop");
+});

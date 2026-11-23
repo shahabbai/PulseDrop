@@ -170,11 +170,13 @@ export function mountSettings({ root, invoke, showToast }) {
     }
   }
 
-  const theme = root?.querySelector("select#theme-select");
-  if (theme instanceof HTMLSelectElement) {
-    theme.value = window.PulseDropTheme.getTheme();
-    theme.addEventListener("change", () => {
-      if (theme.value === "light" || theme.value === "dark") window.PulseDropTheme.setTheme(theme.value);
+  for (const choice of root?.querySelectorAll("input[name='theme']") ?? []) {
+    if (!(choice instanceof HTMLInputElement)) continue;
+    choice.checked = choice.value === window.PulseDropTheme.getTheme();
+    choice.addEventListener("change", () => {
+      if (choice.checked && (choice.value === "light" || choice.value === "dark")) {
+        window.PulseDropTheme.setTheme(choice.value);
+      }
     });
   }
   const motion = root?.querySelector("input#reduce-motion");

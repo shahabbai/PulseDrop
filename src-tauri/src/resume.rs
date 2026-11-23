@@ -369,8 +369,11 @@ impl Store {
             }
             let control = Arc::new(Control::new(chunk.id.into()));
             active.insert(chunk.id.into(), control.clone());
-            self.awaiting.lock().unwrap().remove(chunk.id);
-            notify(record.progress(chunk.id, Phase::Receiving, 0.0));
+            // The last confirmed chunk already reported a receiving state and a rate.
+            // Only start the meter again for a new or paused transfer.
+            if self.awaiting.lock().unwrap().remove(chunk.id).is_none() {
+                notify(record.progress(chunk.id, Phase::Receiving, 0.0));
+            }
             (
                 record,
                 Lease {
@@ -516,6 +519,52 @@ mod tests {
             &AtomicBool::new(false),
             |_| {},
         )
+    }
+
+    #[test]
+    fn consecutive_chunks_do_not_reset_the_displayed_speed() {
+        let inbox = Inbox::new();
+        let store = Store::default();
+        store.prepare(&inbox.0).unwrap();
+        let bytes = vec![13; CHUNK as usize];
+        let tail = b"tail";
+        let size = 2 * CHUNK + tail.len() as u64;
+        let mut previous = EMPTY_DIGEST.to_string();
+        let mut progress = Vec::new();
+        for (offset, body) in [
+            (0, bytes.as_slice()),
+            (CHUNK, bytes.as_slice()),
+            (2 * CHUNK, tail.as_slice()),
+        ] {
+            previous = digest(&previous, body);
+            store
+                .append(
+                    &inbox.0,
+                    Chunk {
+                        id: ID,
+                        name: "example.bin".into(),
+                        size,
+                        offset,
+                        length: body.len() as u64,
+                        digest: &previous,
+                        prefix: &[],
+                    },
+                    &mut Cursor::new(body),
+                    &AtomicBool::new(false),
+                    |event| progress.push(event),
+                )
+                .unwrap();
+        }
+        assert_eq!(progress.len(), 4);
+        assert_eq!(progress[0].phase, Phase::Receiving);
+        assert_eq!(progress[0].speed, 0.0);
+        assert_eq!(progress[1].received, CHUNK);
+        assert_eq!(progress[2].received, 2 * CHUNK);
+        assert!(progress[1..3]
+            .iter()
+            .all(|event| event.phase == Phase::Receiving && event.speed > 0.0));
+        assert_eq!(progress[3].phase, Phase::Completed);
+        assert_eq!(progress[3].received, size);
     }
 
     #[test]

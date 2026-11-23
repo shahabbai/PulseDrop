@@ -95,17 +95,16 @@ def wait_for_driver(process, port):
 
 def check_theme(app):
     app.nav("settings")
-    for theme in ("light", "dark"):
-        app.script("""
-          const field = document.querySelector("#theme-select");
-          field.value = arguments[0];
-          field.dispatchEvent(new Event("change", { bubbles: true }));
-        """, theme)
+    for theme, arrow in (("light", "\ue014"), ("dark", "\ue012")):
+        group = '.theme-options input[name="theme"]:checked'
+        field = app.call("element", {"using": "css selector", "value": group})[ELEMENT_ID]
+        app.call(f"element/{field}/value", {"text": arrow})
         assert app.script("return getComputedStyle(document.documentElement).colorScheme") == theme
+        assert app.script("return document.activeElement.value") == theme
         app.call("refresh", {})
         wait_for("app startup after refresh", lambda: app.script("return !document.querySelector('#boot-screen')"))
-        assert app.script("return document.querySelector('#theme-select').value") == theme
-    print("PASS theme changes and settings persistence", flush=True)
+        assert app.script("return document.querySelector(arguments[0]).value", group) == theme
+    print("PASS theme keyboard navigation and settings persistence", flush=True)
 
 
 def check_discovery(app):
@@ -262,6 +261,24 @@ def stage_resumable_upload(app, directory):
     with urlopen(Request(f"http://127.0.0.1:{port}/resume?{query}", data=chunk), timeout=10) as response:
         assert json.load(response)["offset"] == len(chunk)
     assert not (inbox / file.name).exists()
+    speed = wait_for("a measured receive speed", lambda: (
+        value if (value := app.text("#receive-speed")).endswith("/s") and value != "0 B/s" else None
+    ))
+    next_chunk = urlencode({
+        "code": code, "transfer_id": transfer_id, "name": file.name,
+        "size": file.stat().st_size, "offset": len(chunk),
+        "digest": sha256(sha256(b"0" * 64 + chunk).hexdigest().encode() + tail).hexdigest(),
+    })
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as stream:
+        stream.sendall((
+            f"POST /resume?{next_chunk} HTTP/1.1\r\nHost: localhost\r\n"
+            f"Content-Length: {len(tail)}\r\nConnection: close\r\n\r\n"
+        ).encode() + tail[:1024])
+        # Leave the next request in progress long enough to observe its UI.
+        for _ in range(5):
+            time.sleep(0.05)
+            assert app.text("#receive-speed") == speed
+    print("PASS receive speed stays steady while the next chunk is in flight", flush=True)
     app.script("""
       const [receiver, name, size, id] = arguments;
       localStorage.setItem("pulsedrop.resume.v1", JSON.stringify([{
@@ -364,6 +381,7 @@ def main():
             app = None
             try:
                 wait_for_driver(process, port)
+                wait_for_driver(process, native_port)
                 app = WebView(port, args.binary.resolve())
                 wait_for("app startup", lambda: app.script("return !document.querySelector('#boot-screen')"))
                 check_theme(app)
