@@ -1,7 +1,7 @@
 // This blocking, external script runs before the stylesheet to avoid a theme flash.
 (() => {
   const storageKey = "pulsedrop.theme";
-  const backgrounds = { dark: "#1e2030", light: "#f5f1eb" };
+  const backgrounds = { dark: "#0b1424", light: "#eaf1fb" };
   /** @type {import("../native-types").Theme} */
   let current = "dark";
 

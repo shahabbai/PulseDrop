@@ -93,6 +93,22 @@ def wait_for_driver(process, port):
     wait_for("WebDriver startup", ready)
 
 
+def check_navigation(app):
+    app.nav("home")
+    for page in ("send", "receive"):
+        app.click(f"#home-{page}")
+        assert app.script("return document.activeElement.id") == f"{page}-title"
+        assert app.script("return document.querySelector('.nav-item[aria-current]').dataset.mode") == page
+        app.click(f'input[name="{page}-connection"][value="hotspot"]')
+        assert app.script("return !document.querySelector('#hotspot-' + arguments[0]).hidden", page)
+        app.click(f'input[name="{page}-connection"][value="lan"]')
+        assert app.script("return document.querySelector('#hotspot-' + arguments[0]).hidden", page)
+        app.click("#back-home")
+        wait_for("return to Home", lambda: app.script(
+            "return !document.querySelector('#home-screen').hidden && document.activeElement.id === 'home-title'"))
+    print("PASS dock state, Home shortcuts, hotspot panels, and Back navigation", flush=True)
+
+
 def check_theme(app):
     app.nav("settings")
     for theme, arrow in (("light", "\ue014"), ("dark", "\ue012")):
@@ -104,7 +120,14 @@ def check_theme(app):
         app.call("refresh", {})
         wait_for("app startup after refresh", lambda: app.script("return !document.querySelector('#boot-screen')"))
         assert app.script("return document.querySelector(arguments[0]).value", group) == theme
-    print("PASS theme keyboard navigation and settings persistence", flush=True)
+    app.click("#reduce-motion")
+    assert app.script(
+        "return getComputedStyle(document.querySelector('.app-nav'), '::before').transitionDuration === '0s'")
+    app.call("refresh", {})
+    wait_for("app startup after refresh", lambda: app.script("return !document.querySelector('#boot-screen')"))
+    assert app.script("return document.querySelector('#reduce-motion').checked")
+    app.click("#reduce-motion")
+    print("PASS theme keyboard navigation, motion preference, and settings persistence", flush=True)
 
 
 def check_discovery(app):
@@ -150,7 +173,7 @@ def check_update_notice(app):
       const updates = window.PulseDropNative.updates;
       const originalCheck = updates.check;
       const originalNow = Date.now;
-      updates.check = async () => "0.9.0";
+      updates.check = async () => "1.1.0";
       Date.now = () => originalNow() + 7_200_000;
       window.restoreUpdateCheck = () => {
         updates.check = originalCheck;
@@ -162,14 +185,14 @@ def check_update_notice(app):
           window.dispatchEvent(new Event("online"));
           return !document.querySelector("#update-notice").hidden;
         """))
-        assert "0.9.0" in app.text("#update-notice-text")
+        assert "1.1.0" in app.text("#update-notice-text")
         app.click("#view-update")
         assert app.script("return document.activeElement.id") == "check-update"
         assert app.text("#check-update") == "Install update"
         app.nav("home")
         app.click("#dismiss-update")
         assert app.script("return document.querySelector('#update-notice').hidden")
-        assert app.script("return localStorage.getItem('pulsedrop.dismissedUpdateVersion')") == "0.9.0"
+        assert app.script("return localStorage.getItem('pulsedrop.dismissedUpdateVersion')") == "1.1.0"
     finally:
         app.script("window.restoreUpdateCheck(); delete window.restoreUpdateCheck;")
     print("PASS automatic update notice, Settings navigation, and dismissal", flush=True)
@@ -384,6 +407,7 @@ def main():
                 wait_for_driver(process, native_port)
                 app = WebView(port, args.binary.resolve())
                 wait_for("app startup", lambda: app.script("return !document.querySelector('#boot-screen')"))
+                check_navigation(app)
                 check_theme(app)
                 check_update_notice(app)
                 check_update_guard(app)

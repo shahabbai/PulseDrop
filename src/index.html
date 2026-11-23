@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1e2030" />
+    <meta name="theme-color" content="#0b1424" />
     <title>PulseDrop</title>
     <script src="/native-platform.js"></script>
     <script src="/theme.js"></script>
@@ -84,32 +84,21 @@
 
 
     <div class="app-shell" id="app-shell" data-view="home">
-      <aside class="sidebar" aria-label="Application sidebar">
-        <a class="brand" href="#home" data-mode="home" aria-label="PulseDrop home">
-          <img src="../src-tauri/icons/128x128.png" width="32" height="32" alt="" />
-          <span>PulseDrop</span>
-        </a>
-        <nav class="app-nav" aria-label="Main navigation">
-          <button class="nav-item" type="button" data-mode="home" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#icon-home"/></svg><span>Home</span></button>
-          <button class="nav-item" type="button" data-mode="send"><svg class="icon" aria-hidden="true"><use href="#icon-upload"/></svg><span>Send files</span></button>
-          <button class="nav-item" type="button" data-mode="receive"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg><span>Receive files</span><span class="nav-receiver-indicator" id="nav-receiver-indicator" hidden aria-label="Receiver active"></span></button>
-          <button class="nav-item nav-settings" type="button" id="home-settings" data-mode="settings"><svg class="icon" aria-hidden="true"><use href="#icon-settings"/></svg><span>Settings</span></button>
-        </nav>
-        <div class="sidebar-device">
-          <div class="sidebar-device-title"><span class="status-dot" id="status-dot" aria-hidden="true"></span><span>This device</span></div>
-          <strong id="device-name">Getting ready…</strong>
-          <span id="device-platform" class="muted"></span>
-          <span id="local-ip" class="mono">Checking network</span>
-        </div>
-      </aside>
+      <canvas class="glass-scene" aria-hidden="true"></canvas>
+      <a class="brand" href="#home" data-mode="home" aria-label="PulseDrop home">
+        <img src="../src-tauri/icons/128x128.png" width="32" height="32" alt="" />
+        <span>PulseDrop</span>
+      </a>
+      <nav class="app-nav" data-glass="dock" aria-label="Main navigation">
+        <button class="nav-item" type="button" data-mode="home" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#icon-home"/></svg><span>Home</span></button>
+        <button class="nav-item" type="button" data-mode="send" aria-label="Send files"><svg class="icon" aria-hidden="true"><use href="#icon-upload"/></svg><span>Send</span></button>
+        <button class="nav-item" type="button" data-mode="receive"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg><span>Receive</span><span class="nav-receiver-indicator" id="nav-receiver-indicator" hidden><span class="sr-only">Receiver active</span></span></button>
+        <button class="nav-item" type="button" id="home-settings" data-mode="settings"><svg class="icon" aria-hidden="true"><use href="#icon-settings"/></svg><span>Settings</span></button>
+      </nav>
+      <span class="local-badge"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg> Local transfer</span>
 
-      <div class="main-column">
-        <header class="topbar">
-          <div class="breadcrumb"><button class="icon-button back-button" type="button" id="back-home" title="Go back" aria-label="Go back" hidden><svg class="icon" aria-hidden="true"><use href="#icon-arrow-left"/></svg></button><strong id="workflow-title">Home</strong></div>
-          <span class="local-badge"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg> Local transfer</span>
-        </header>
-
-        <main class="page-content" id="main-content" tabindex="-1">
+      <main class="page-content" id="main-content" tabindex="-1">
+        <div class="page-frame">
           <div class="panel update-notice" id="update-notice" hidden>
             <p id="update-notice-text" role="status" aria-atomic="true"></p>
             <div class="update-notice-actions">
@@ -120,30 +109,48 @@
           <section class="home-screen" id="home-screen" aria-labelledby="home-title">
             <div class="home-intro">
               <div class="home-intro-copy">
-                <h1 id="home-title" tabindex="-1">Share files nearby</h1>
-                <p class="page-description">Transfer directly between your devices over a local network or hotspot.</p>
+                <h1 id="home-title" tabindex="-1">Share files.<span>Stay local.</span></h1>
+                <p class="page-description">Send files directly between your devices over Wi-Fi or a hotspot.</p>
               </div>
-              <img class="home-app-icon" src="../src-tauri/icons/128x128@2x.png" width="256" height="256" alt="" />
+              <div class="home-art" aria-hidden="true">
+                <span class="home-lens"><img src="../assets/brand/pulsedrop-icon.svg" width="320" height="320" alt="" /></span>
+              </div>
             </div>
             <div class="mode-actions">
-              <button class="mode-button mode-send-button" type="button" id="home-send" data-mode="send">
+              <button class="mode-button mode-send-button" data-glass="action" type="button" id="home-send" data-mode="send">
                 <span class="mode-icon"><svg class="icon" aria-hidden="true"><use href="#icon-upload"/></svg></span>
                 <span class="mode-card-copy"><strong>Send files</strong><span>Choose files and a nearby receiver.</span></span>
                 <svg class="icon mode-chevron" aria-hidden="true"><use href="#icon-chevron-right"/></svg>
               </button>
-              <button class="mode-button mode-receive-button" type="button" id="home-receive" data-mode="receive">
+              <button class="mode-button" data-glass="action" type="button" id="home-receive" data-mode="receive">
                 <span class="mode-icon"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg></span>
                 <span class="mode-card-copy"><strong>Receive files</strong><span>Make this device available to senders.</span></span>
                 <svg class="icon mode-chevron" aria-hidden="true"><use href="#icon-chevron-right"/></svg>
               </button>
             </div>
+            <div class="device-strip panel">
+              <span class="device-symbol"><svg class="icon" aria-hidden="true"><use href="#icon-device"/></svg></span>
+              <div class="device-identity">
+                <span class="muted" id="device-caption">This device</span>
+                <strong id="device-name">Getting ready…</strong>
+              </div>
+              <span id="device-platform" class="device-platform muted"></span>
+              <span class="device-address"><span class="status-dot" id="status-dot" aria-hidden="true"></span><span id="local-ip" class="mono">Checking network</span></span>
+            </div>
           </section>
 
           <section class="workflow-screen" id="workflow-screen" hidden>
+            <button class="secondary-action back-button" type="button" id="back-home" title="Go back" aria-label="Go back" hidden><svg class="icon" aria-hidden="true"><use href="#icon-arrow-left"/></svg></button>
             <article class="tool-panel" id="send-panel" data-panel="send" hidden aria-labelledby="send-title">
               <div class="page-heading"><div><h1 id="send-title" tabindex="-1">Send files</h1><p class="page-description">Add files, then choose a receiving device.</p></div></div>
               <div class="form-message" id="send-error" role="alert" tabindex="-1" hidden></div>
-              <fieldset class="connection-choice" id="send-connection-choice"><legend>Connection</legend><label><input type="radio" name="send-connection" value="lan" checked/><span>Local network<small>Existing Wi-Fi or LAN</small></span></label><label><input type="radio" name="send-connection" value="hotspot"/><span>Hotspot<small>No router needed</small></span></label></fieldset>
+              <fieldset class="connection-choice" id="send-connection-choice">
+                <legend>Connection</legend>
+                <div class="connection-options">
+                  <label><input type="radio" name="send-connection" value="lan" checked/><svg class="icon" aria-hidden="true"><use href="#icon-device"/></svg><span>Local network<small>Existing Wi-Fi or LAN</small></span></label>
+                  <label><input type="radio" name="send-connection" value="hotspot"/><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg><span>Hotspot<small>No router needed</small></span></label>
+                </div>
+              </fieldset>
               <section class="panel hotspot-panel" id="hotspot-send" hidden aria-labelledby="hotspot-send-title">
                 <div class="hotspot-heading"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><h2 id="hotspot-send-title">Connect to your receiver</h2><p id="hotspot-send-description">Join your receiver’s Wi-Fi directly. No router or internet needed.</p></div></div>
                 <div id="hotspot-wifi-picker" hidden>
@@ -165,7 +172,7 @@
               </section>
               <div class="send-layout">
                 <div class="send-main">
-                  <label class="drop-zone" id="drop-zone">
+                  <label class="drop-zone" data-glass="control" id="drop-zone">
                     <input id="file-input" type="file" multiple aria-label="Choose files to send" aria-describedby="file-help" />
                     <span class="drop-icon"><svg class="icon" aria-hidden="true"><use href="#icon-folder"/></svg></span>
                     <strong>Drop files here</strong>
@@ -202,8 +209,14 @@
             </article>
 
             <article class="tool-panel" id="receive-panel" data-panel="receive" hidden aria-labelledby="receive-title">
-              <div class="page-heading"><div><h1 id="receive-title" tabindex="-1">Receive files</h1><p class="page-description">Give your other device a place to send.</p></div><button class="primary-action" type="button" id="toggle-receiver"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg><span>Start receiving</span></button></div>
-              <fieldset class="connection-choice" id="receive-connection-choice"><legend>Connection</legend><label><input type="radio" name="receive-connection" value="lan" checked/><span>Local network<small>Existing Wi-Fi or LAN</small></span></label><label><input type="radio" name="receive-connection" value="hotspot"/><span>Hotspot<small>No router needed</small></span></label></fieldset>
+              <div class="page-heading"><div><h1 id="receive-title" tabindex="-1">Receive files</h1><p class="page-description">Start a session and share your pairing code with the sender.</p></div><button class="primary-action" data-glass="command" type="button" id="toggle-receiver"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg><span>Start receiving</span></button></div>
+              <fieldset class="connection-choice" id="receive-connection-choice">
+                <legend>Connection</legend>
+                <div class="connection-options">
+                  <label><input type="radio" name="receive-connection" value="lan" checked/><svg class="icon" aria-hidden="true"><use href="#icon-device"/></svg><span>Local network<small>Existing Wi-Fi or LAN</small></span></label>
+                  <label><input type="radio" name="receive-connection" value="hotspot"/><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg><span>Hotspot<small>No router needed</small></span></label>
+                </div>
+              </fieldset>
               <section class="panel hotspot-panel" id="hotspot-receive" hidden aria-labelledby="hotspot-receive-title">
                 <div class="hotspot-heading"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><h2 id="hotspot-receive-title">Create a receiver hotspot</h2><p id="hotspot-capability">Checking this device’s hotspot support…</p></div><span class="status-badge" id="hotspot-state">Not started</span></div>
                 <div class="hotspot-qr" id="hotspot-qr" hidden><canvas id="hotspot-qr-code" role="img" aria-label="Wi-Fi and receiver connection QR code"></canvas><div><h3>Scan to connect</h3><p id="hotspot-qr-hint" role="status">On the other device, open Send → Hotspot → Scan QR. No password typing.</p><p class="muted">Keep this QR private. It includes this session’s Wi-Fi credentials.</p></div></div>
@@ -218,73 +231,85 @@
                 <details class="disclosure hotspot-help"><summary>How to connect your sender<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><ol class="hotspot-steps"><li>Create a hotspot here. Keep PulseDrop open while transferring.</li><li>On the other device, open Send → Hotspot → Scan QR, then choose Connect.</li><li>You can also choose a nearby Wi-Fi network and enter its password manually.</li></ol></details>
                 <p class="hotspot-status" id="hotspot-receive-status" role="status" aria-live="polite">Your normal local-network receiver stays available.</p>
               </section>
-              <section class="transfer-monitor panel receive-monitor" id="receive-monitor" hidden aria-labelledby="receive-label">
-                <h2 class="transfer-label" id="receive-label">Receiving</h2>
-                <div class="transfer-monitor-top"><strong id="receive-name">Incoming file</strong><span id="receive-percent" class="mono">0%</span></div>
-                <div class="transfer-track" id="receive-progress" role="progressbar" aria-label="Incoming transfer" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="transfer-fill" id="receive-fill"></div></div>
-                <div class="transfer-stats"><span id="receive-bytes">0 B of 0 B</span><span id="receive-speed">0 B/s</span></div>
-                <div class="transfer-actions"><button class="secondary-action cancel-action" type="button" id="cancel-receive" hidden>Cancel file</button></div>
-                <p id="receive-announcement" class="sr-only" role="status" aria-live="polite"></p>
-              </section>
-              <section class="panel receiver-session" id="receiver-session" aria-labelledby="receiver-state-title">
-                <div class="receiver-state-row"><span class="receiver-symbol"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg></span><div class="receiver-state-copy"><h2 id="receiver-state-title">Ready when you are</h2><p id="receiver-state-description">Start receiving to make this device visible on your network.</p></div><span class="status-badge" id="receiver-state">Offline</span></div>
-                <div class="endpoint-grid">
-                  <div class="endpoint-cell"><span>IP address</span><button class="copy-value" type="button" id="copy-ip" title="Copy IP address" aria-label="Copy receiver IP address" disabled><strong id="session-ip">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
-                  <div class="endpoint-cell"><span>Port</span><button class="copy-value" type="button" id="copy-port" title="Copy port" aria-label="Copy receiver port" disabled><strong id="session-port">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
-                  <div class="endpoint-cell pairing-cell"><span>Pairing code</span><button class="copy-value" type="button" id="copy-code" title="Copy pairing code" aria-label="Copy pairing code" disabled><strong id="session-code">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
+              <div class="receive-layout">
+                <div class="receive-session-column">
+                  <section class="panel receiver-session" id="receiver-session" aria-labelledby="receiver-state-title">
+                    <div class="receiver-state-row"><span class="receiver-symbol"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg></span><div class="receiver-state-copy"><h2 id="receiver-state-title">Ready when you are</h2><p id="receiver-state-description">Start receiving to make this device visible on your network.</p></div><span class="status-badge" id="receiver-state">Offline</span></div>
+                    <div class="endpoint-grid">
+                      <div class="endpoint-cell"><span>IP address</span><button class="copy-value" type="button" id="copy-ip" title="Copy IP address" aria-label="Copy receiver IP address" disabled><strong id="session-ip">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
+                      <div class="endpoint-cell"><span>Port</span><button class="copy-value" type="button" id="copy-port" title="Copy port" aria-label="Copy receiver port" disabled><strong id="session-port">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
+                      <div class="endpoint-cell pairing-cell"><span>Pairing code</span><button class="copy-value" type="button" id="copy-code" title="Copy pairing code" aria-label="Copy pairing code" disabled><strong id="session-code">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
+                    </div>
+                    <p class="receiver-discovery-status" id="receiver-discovery-status" role="status" aria-live="polite" hidden></p>
+                  </section>
+                  <section class="transfer-monitor panel receive-monitor" id="receive-monitor" hidden aria-labelledby="receive-label">
+                    <h2 class="transfer-label" id="receive-label">Receiving</h2>
+                    <div class="transfer-monitor-top"><strong id="receive-name">Incoming file</strong><span id="receive-percent" class="mono">0%</span></div>
+                    <div class="transfer-track" id="receive-progress" role="progressbar" aria-label="Incoming transfer" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="transfer-fill" id="receive-fill"></div></div>
+                    <div class="transfer-stats"><span id="receive-bytes">0 B of 0 B</span><span id="receive-speed">0 B/s</span></div>
+                    <div class="transfer-actions"><button class="secondary-action cancel-action" type="button" id="cancel-receive" hidden>Cancel file</button></div>
+                    <p id="receive-announcement" class="sr-only" role="status" aria-live="polite"></p>
+                  </section>
+                  <details class="disclosure receiver-network" id="receiver-network"><summary>Advanced network details<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><p class="muted">If your device has more than one local address, choose the one reachable by your sender.</p><div class="network-row" id="network-row" hidden><span>Local addresses</span><div class="network-chips" id="network-chips"></div></div></details>
                 </div>
-                <p class="receiver-discovery-status" id="receiver-discovery-status" role="status" aria-live="polite" hidden></p>
-              </section>
-              <div class="inbox-row panel"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-folder"/></svg></span><div><span>Files arrive in your Inbox</span><strong id="inbox-path">Start receiving to create your Inbox</strong></div><button class="secondary-action" type="button" id="open-inbox" disabled><span>Open Inbox</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg></button></div>
-              <section class="panel activity-block" aria-labelledby="activity-heading"><div class="section-heading"><h2 id="activity-heading">Transfer activity</h2><span class="muted" id="activity-total">No transfers</span></div><ul class="activity-list" id="activity-list"></ul><div class="activity-footer"><span>Received this session</span><strong id="inbox-count">0 files</strong></div></section>
-              <details class="disclosure receiver-network" id="receiver-network"><summary>Advanced network details<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><p class="muted">If your device has more than one local address, choose the one reachable by your sender.</p><div class="network-row" id="network-row" hidden><span>Local addresses</span><div class="network-chips" id="network-chips"></div></div></details>
+                <div class="receive-activity-column">
+                  <section class="panel activity-block" aria-labelledby="activity-heading"><div class="section-heading"><h2 id="activity-heading">Transfer activity</h2><span class="muted" id="activity-total">No transfers</span></div><ul class="activity-list" id="activity-list"></ul><div class="activity-footer"><span>Received this session</span><strong id="inbox-count">0 files</strong></div></section>
+                  <div class="inbox-row panel"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-folder"/></svg></span><div><span>Inbox</span><strong id="inbox-path">Start receiving to create your Inbox</strong></div><button class="secondary-action" type="button" id="open-inbox" disabled><span>Open Inbox</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg></button></div>
+                </div>
+              </div>
             </article>
 
             <article class="tool-panel settings-panel" id="settings-panel" data-panel="settings" hidden aria-labelledby="settings-title">
               <div class="page-heading"><div><h1 id="settings-title" tabindex="-1">Settings</h1></div></div>
-              <section class="settings-section" aria-labelledby="appearance-heading">
-                <h2 id="appearance-heading">Appearance</h2>
-                <div class="panel settings-group">
-                  <div class="preference-row theme-row">
-                    <span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-device"/></svg></span>
-                    <div class="theme-copy"><strong id="theme-label">Theme</strong><p id="theme-description">Your choice is saved on this device.</p></div>
-                    <div class="theme-options" role="radiogroup" aria-labelledby="theme-label" aria-describedby="theme-description">
-                      <label class="theme-option">
-                        <input type="radio" name="theme" value="dark" checked/>
-                        <span class="theme-option-face"><svg class="icon" aria-hidden="true"><use href="#icon-moon"/></svg>Dark<svg class="icon theme-indicator" aria-hidden="true"><use href="#icon-check"/></svg></span>
-                      </label>
-                      <label class="theme-option">
-                        <input type="radio" name="theme" value="light"/>
-                        <span class="theme-option-face"><svg class="icon" aria-hidden="true"><use href="#icon-sun"/></svg>Light<svg class="icon theme-indicator" aria-hidden="true"><use href="#icon-check"/></svg></span>
-                      </label>
+              <div class="settings-layout">
+                <div class="settings-column">
+                  <section class="settings-section" aria-labelledby="appearance-heading">
+                    <h2 id="appearance-heading">Appearance</h2>
+                    <div class="panel settings-group">
+                      <div class="preference-row theme-row">
+                        <span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-device"/></svg></span>
+                        <div class="theme-copy"><strong id="theme-label">Theme</strong><p id="theme-description">Your choice is saved on this device.</p></div>
+                        <div class="theme-options" role="radiogroup" aria-labelledby="theme-label" aria-describedby="theme-description">
+                          <label class="theme-option">
+                            <input type="radio" name="theme" value="dark" checked/>
+                            <span class="theme-option-face"><svg class="icon" aria-hidden="true"><use href="#icon-moon"/></svg>Dark<svg class="icon theme-indicator" aria-hidden="true"><use href="#icon-check"/></svg></span>
+                          </label>
+                          <label class="theme-option">
+                            <input type="radio" name="theme" value="light"/>
+                            <span class="theme-option-face"><svg class="icon" aria-hidden="true"><use href="#icon-sun"/></svg>Light<svg class="icon theme-indicator" aria-hidden="true"><use href="#icon-check"/></svg></span>
+                          </label>
+                        </div>
+                      </div>
+                      <label class="preference-row" for="reduce-motion"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg></span><span class="preference-copy"><strong>Reduce animations</strong><span>Keep transitions to a minimum. System preferences are always respected.</span></span><input class="switch" id="reduce-motion" type="checkbox" role="switch"/></label>
                     </div>
-                  </div>
-                  <label class="preference-row" for="reduce-motion"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg></span><span class="preference-copy"><strong>Reduce animations</strong><span>Keep transitions to a minimum. System preferences are always respected.</span></span><input class="switch" id="reduce-motion" type="checkbox" role="switch"/></label>
+                  </section>
+                  <section class="settings-section" aria-labelledby="connection-heading"><h2 id="connection-heading">Connection</h2><div class="panel settings-group"><div class="preference-row"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><strong>Local network discovery</strong><p>Automatically looks for active receivers while you’re on Send.</p></div><span class="value-badge">Automatic</span></div><details class="disclosure diagnostics-disclosure"><summary>Troubleshoot a connection<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><p class="muted">Network and firewall checks are available on Windows.</p><div class="diagnostics-toolbar"><span>Connection health</span><button class="icon-button" type="button" id="settings-refresh" title="Refresh connection checks" aria-label="Refresh connection checks"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></button></div><div class="diagnostic-list">
+                    <section class="diagnostic-card" id="network-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Network profile</h3><span class="diagnostic-status" id="network-status">Checking</span></div><p id="network-message">Checking network profile…</p><small id="network-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-network" disabled>Fix</button></section>
+                    <section class="diagnostic-card" id="firewall-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-shield"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Windows Firewall</h3><span class="diagnostic-status" id="firewall-status">Checking</span></div><p id="firewall-message">Checking inbound access…</p><small id="firewall-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-firewall" disabled>Fix</button></section>
+                  </div></details></div></section>
                 </div>
-              </section>
-              <section class="settings-section" aria-labelledby="connection-heading"><h2 id="connection-heading">Connection</h2><div class="panel settings-group"><div class="preference-row"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><strong>Local network discovery</strong><p>Automatically looks for active receivers while you’re on Send.</p></div><span class="value-badge">Automatic</span></div><details class="disclosure diagnostics-disclosure"><summary>Troubleshoot a connection<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><p class="muted">Network and firewall checks are available on Windows.</p><div class="diagnostics-toolbar"><span>Connection health</span><button class="icon-button" type="button" id="settings-refresh" title="Refresh connection checks" aria-label="Refresh connection checks"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></button></div><div class="diagnostic-list">
-                <section class="diagnostic-card" id="network-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Network profile</h3><span class="diagnostic-status" id="network-status">Checking</span></div><p id="network-message">Checking network profile…</p><small id="network-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-network" disabled>Fix</button></section>
-                <section class="diagnostic-card" id="firewall-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-shield"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Windows Firewall</h3><span class="diagnostic-status" id="firewall-status">Checking</span></div><p id="firewall-message">Checking inbound access…</p><small id="firewall-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-firewall" disabled>Fix</button></section>
-              </div></details></div></section>
-              <section class="settings-section" aria-labelledby="software-update-heading">
-                <h2 id="software-update-heading">Software update</h2>
-                <div class="panel settings-group">
-                  <div class="preference-row update-row">
-                    <span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></span>
-                    <div>
-                      <strong>Update PulseDrop</strong>
-                      <p id="update-status" role="status">Download and install the latest version from GitHub.</p>
-                      <progress id="update-progress" aria-label="Update download progress" hidden></progress>
+                <div class="settings-column">
+                  <section class="settings-section" aria-labelledby="software-update-heading">
+                    <h2 id="software-update-heading">Software update</h2>
+                    <div class="panel settings-group">
+                      <div class="preference-row update-row">
+                        <span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></span>
+                        <div>
+                          <strong>Update PulseDrop</strong>
+                          <p id="update-status" role="status">Download and install the latest version from GitHub.</p>
+                          <progress id="update-progress" aria-label="Update download progress" hidden></progress>
+                        </div>
+                        <button class="secondary-action" id="check-update" type="button" aria-describedby="update-status">Check for updates</button>
+                      </div>
                     </div>
-                    <button class="secondary-action" id="check-update" type="button" aria-describedby="update-status">Check for updates</button>
-                  </div>
+                  </section>
+                  <section class="settings-section" aria-labelledby="about-heading"><h2 id="about-heading">About</h2><div class="panel settings-group"><div class="preference-row about-row"><img src="../src-tauri/icons/128x128.png" width="36" height="36" alt=""/><div><strong>PulseDrop</strong><p>Local file transfer</p></div><span class="value-badge" data-app-version></span></div><details class="disclosure"><summary>Application details<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><span class="field-label">Installed application</span><strong class="app-path mono" id="settings-app-path">Checking…</strong></details></div></section>
                 </div>
-              </section>
-              <section class="settings-section" aria-labelledby="about-heading"><h2 id="about-heading">About</h2><div class="panel settings-group"><div class="preference-row about-row"><img src="../src-tauri/icons/128x128.png" width="36" height="36" alt=""/><div><strong>PulseDrop</strong><p>Local file transfer</p></div><span class="value-badge" data-app-version></span></div><details class="disclosure"><summary>Application details<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><span class="field-label">Installed application</span><strong class="app-path mono" id="settings-app-path">Checking…</strong></details></div></section>
+              </div>
             </article>
           </section>
-        </main>
-      </div>
+        </div>
+      </main>
       <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </div>
     <script src="./main.js" type="module"></script>

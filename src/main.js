@@ -7,6 +7,7 @@ import { formatBytes, formatSpeed } from "./transfer-format.js";
 import { mountSettings } from "./settings-ui.js";
 import { mountUpdater } from "./update-ui.js";
 import { mountHotspot } from "./hotspot-ui.js";
+import { mountGlass } from "./glass.js";
 import { version } from "../package.json";
 
 const native = window.PulseDropNative;
@@ -81,12 +82,12 @@ const els = {
   homeReceive: document.querySelector("#home-receive"),
   homeSettings: document.querySelector("#home-settings"),
   backHome: document.querySelector("#back-home"),
-  workflowTitle: document.querySelector("#workflow-title"),
   sendPanel: document.querySelector("#send-panel"),
   receivePanel: document.querySelector("#receive-panel"),
   settingsPanel: document.querySelector("#settings-panel"),
   statusDot: document.querySelector("#status-dot"),
   deviceName: document.querySelector("#device-name"),
+  deviceCaption: document.querySelector("#device-caption"),
   devicePlatform: document.querySelector("#device-platform"),
   localIp: document.querySelector("#local-ip"),
   receiverState: document.querySelector("#receiver-state"),
@@ -311,7 +312,6 @@ function setView(mode, options = {}) {
     if (button.dataset.mode === nextView) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  els.workflowTitle.textContent = { home: "Home", send: "Send files", receive: "Receive files", settings: "Settings" }[nextView];
 
   if (options.updateHistory !== false) {
     writeViewHistory(nextView, Boolean(options.replaceHistory));
@@ -646,7 +646,9 @@ async function loadDeviceProfile() {
     if (state.receiver) state.receiver = await invoke("start_receiver", { receiverName: null });
     state.selectedIp = profile.primary_ip || (state.networkIps[0] && state.networkIps[0].ip) || null;
     els.statusDot.classList.toggle("online", Boolean(state.selectedIp));
-    els.deviceName.textContent = native.deviceName() || profile.name;
+    const name = native.deviceName() || profile.name;
+    els.deviceName.textContent = name;
+    els.deviceCaption.hidden = name === "This device";
     els.devicePlatform.textContent = `${profile.platform} ${profile.arch}`;
     els.localIp.textContent = state.selectedIp || "No network";
     els.localIp.title = state.networkIps.map((address) => address.label || address.ip).join("\n");
@@ -1021,5 +1023,4 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 
-
-
+mountGlass(els.appShell);

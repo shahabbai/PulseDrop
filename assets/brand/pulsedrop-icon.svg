@@ -1,59 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1024" height="1024">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512">
+  <title>PulseDrop</title>
   <defs>
-    <linearGradient id="clay" x2="0.82" y2="1">
-      <stop stop-color="#fdfaff"/>
-      <stop offset=".38" stop-color="#e8e5ff"/>
-      <stop offset=".76" stop-color="#c6bff4"/>
-      <stop offset="1" stop-color="#a093dc"/>
+    <path id="tile" d="M163 29h186c86 0 134 48 134 134v186c0 86-48 134-134 134H163c-86 0-134-48-134-134V163C29 77 77 29 163 29Z"/>
+    <clipPath id="tile-clip"><use href="#tile"/></clipPath>
+    <linearGradient id="sapphire" x1=".14" y1="0" x2=".81" y2="1">
+      <stop stop-color="#255682"/>
+      <stop offset=".3" stop-color="#183452"/>
+      <stop offset=".62" stop-color="#111e3b"/>
+      <stop offset="1" stop-color="#28345f"/>
     </linearGradient>
-    <linearGradient id="rim" x2="0.86" y2="1">
-      <stop stop-color="#fff"/>
-      <stop offset=".5" stop-color="#f1ebff"/>
-      <stop offset="1" stop-color="#9d8fd4"/>
+    <radialGradient id="bloom" cx=".99" cy="1" r=".84">
+      <stop stop-color="#83e9ff" stop-opacity=".95"/>
+      <stop offset=".34" stop-color="#468bb9" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#174469" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1=".62" y1=".11" x2=".91" y2=".85">
+      <stop stop-color="#f0fcff" stop-opacity=".7"/>
+      <stop offset=".24" stop-color="#98d7fc" stop-opacity=".13"/>
+      <stop offset=".68" stop-color="#84baff" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#87e5ff" stop-opacity=".74"/>
     </linearGradient>
-    <linearGradient id="paper" x2="0.78" y2="1">
-      <stop stop-color="#bdb6f4"/>
-      <stop offset=".52" stop-color="#ebe8ff"/>
-      <stop offset="1" stop-color="#c9c2f8"/>
+    <linearGradient id="edge" x1=".02" y1=".04" x2=".98" y2=".95">
+      <stop stop-color="#f0fcff"/>
+      <stop offset=".29" stop-color="#9ac9f0" stop-opacity=".49"/>
+      <stop offset=".62" stop-color="#9abaf5" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#c8f9ff"/>
     </linearGradient>
-    <linearGradient id="outline" x2="0.8" y2="1">
-      <stop stop-color="#736bf4"/>
-      <stop offset=".33" stop-color="#344bdb"/>
-      <stop offset=".66" stop-color="#2979f1"/>
-      <stop offset="1" stop-color="#392bc4"/>
+    <linearGradient id="paper" x1="0" y1="0" x2=".85" y2="1">
+      <stop stop-color="#e4f7ff" stop-opacity=".27"/>
+      <stop offset=".5" stop-color="#80b9eb" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#97eaff" stop-opacity=".23"/>
     </linearGradient>
-    <linearGradient id="fold" x2="0.8" y2="1">
-      <stop stop-color="#fff"/>
-      <stop offset="1" stop-color="#aca7ed"/>
+    <linearGradient id="fold" x1=".1" y1="0" x2=".8" y2="1">
+      <stop stop-color="#f4fcff"/>
+      <stop offset="1" stop-color="#99c5ec"/>
     </linearGradient>
-    <linearGradient id="pulse" x1="0" y1="0" x2="0" y2="1">
-      <stop stop-color="#7af8ff"/>
-      <stop offset=".42" stop-color="#16d6f3"/>
-      <stop offset="1" stop-color="#06a9e7"/>
+    <linearGradient id="pulse">
+      <stop stop-color="#c5fdff"/>
+      <stop offset=".55" stop-color="#80f1ff"/>
+      <stop offset="1" stop-color="#96e4ff"/>
     </linearGradient>
-    <filter id="blur-tile" x="-.1" y="-.1" width="1.2" height="1.2">
-      <feGaussianBlur stdDeviation="11"/>
-    </filter>
-    <filter id="blur-mark" x="-.2" y="-.3" width="1.4" height="1.6">
-      <feGaussianBlur stdDeviation="5"/>
-    </filter>
-    <path id="page" d="M175 109h106l83 80v170c0 21-17 38-38 38H175c-22 0-39-17-39-38V148c0-22 17-39 39-39Z"/>
-    <path id="wave" d="M140 293h63l33-68 37 107 30-53h20l34-48 32 32"/>
+    <path id="file" d="M183 121h100l73 73v171c0 15-11 26-26 26H183c-15 0-27-11-27-26V148c0-15 12-27 27-27Z"/>
+    <path id="signal" d="M124 280h72l29-57 39 114 29-57h95"/>
   </defs>
-
-  <rect x="39" y="50" width="434" height="432" rx="117" fill="#33246b" opacity=".35" filter="url(#blur-tile)"/>
-  <rect x="33" y="31" width="446" height="444" rx="122" fill="url(#clay)" stroke="url(#rim)" stroke-width="6"/>
-  <path d="M45 153C45 92 92 44 154 44h205" fill="none" stroke="#fff" stroke-opacity=".66" stroke-width="8" stroke-linecap="round"/>
-
-  <use href="#page" transform="translate(4 12)" fill="#392879" opacity=".4" filter="url(#blur-mark)"/>
-  <use href="#page" fill="url(#paper)" stroke="#352ba3" stroke-width="27" stroke-linejoin="round"/>
-  <use href="#page" transform="translate(0 -3)" fill="url(#paper)" stroke="url(#outline)" stroke-width="21" stroke-linejoin="round"/>
-  <path d="M145 154c0-22 12-38 34-38h92" fill="none" stroke="#bfb5ff" stroke-opacity=".74" stroke-width="4" stroke-linecap="round"/>
-
-  <path d="M282 109v60c0 12 9 21 21 21h61Z" fill="url(#fold)" stroke="url(#fold)" stroke-width="13" stroke-linejoin="round"/>
-  <path d="M282 111v57c0 12 9 21 21 21h57" fill="none" stroke="#f9f4ff" stroke-width="6" stroke-linecap="round"/>
-
-  <use href="#wave" transform="translate(2 9)" fill="none" stroke="#18559d" stroke-width="27" stroke-linecap="round" stroke-linejoin="round" opacity=".5" filter="url(#blur-mark)"/>
-  <use href="#wave" transform="translate(0 3)" fill="none" stroke="#087bbd" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
-  <use href="#wave" fill="none" stroke="url(#pulse)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <use href="#tile" fill="url(#sapphire)"/>
+  <g clip-path="url(#tile-clip)">
+    <use href="#tile" fill="url(#bloom)"/>
+    <path d="M-14 373C128 468 261 443 315 311c36-89 86-171 221-146v79c-106-29-156 36-196 112C244 537 117 525-14 466Z" fill="url(#wave)"/>
+    <path d="M-20 400c139 111 279 75 346-70 49-107 106-150 205-125" fill="none" stroke="url(#edge)" stroke-width="3" opacity=".5"/>
+    <path d="M50 156C50 84 89 47 160 47h192c70 0 112 39 112 112" fill="none" stroke="url(#edge)" stroke-width="5" stroke-linecap="round" opacity=".65"/>
+    <path d="M464 346c0 73-42 118-114 118H163c-72 0-114-45-114-118" fill="none" stroke="url(#edge)" stroke-width="4" stroke-linecap="round" opacity=".48"/>
+  </g>
+  <use href="#tile" fill="none" stroke="url(#edge)" stroke-width="5"/>
+  <use href="#file" transform="translate(0 8)" stroke="#060e23" stroke-opacity=".5" stroke-width="20" stroke-linejoin="round" fill="none"/>
+  <use href="#file" fill="url(#paper)" stroke="#e7f7ff" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M283 123v53c0 11 8 19 19 19h52Z" fill="url(#fold)" stroke="#e7f7ff" stroke-width="7" stroke-linejoin="round"/>
+  <use href="#signal" fill="none" stroke="#112541" stroke-opacity=".8" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <use href="#signal" fill="none" stroke="url(#pulse)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/pulsedrop-github-logo.png" alt="Claymorphism PulseDrop banner with a folded file and cyan pulse" width="900" />
+  <img src="assets/brand/pulsedrop-github-logo.png" alt="PulseDrop — Direct file transfer. A sapphire glass icon with a folded file and cyan pulse." width="900" />
 </p>
 
 # PulseDrop
@@ -37,7 +37,7 @@ Installers are available for Windows, Ubuntu, and Android. The experimental macO
 
 ## Stack
 
-The Claymorphism interface uses rounded panels, soft shadows, and Light and Dark themes. The [PulseDrop icon](assets/brand/pulsedrop-icon.svg) pairs a folded file with a cyan pulse and appears in the app and platform launchers.
+The Liquid Glass interface includes Light and Dark themes, a desktop navigation rail, and a compact tab bar on phones. Navigation and key controls use the [Liquid Glass renderer](https://github.com/bilalgursen/liquid-glass) for WebGL2 refraction with CSS fallbacks. The [sapphire PulseDrop icon](assets/brand/pulsedrop-icon.svg) pairs a folded file with a cyan pulse and appears in the app and platform launchers.
 
 - Tauri 2 for the desktop and mobile app shell. See the [release guide](docs/github-releases.md) for packaging and update signing.
 - Rust for the local receiver, upload handling, inbox management, device profile, and network interface selection.

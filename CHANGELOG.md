@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0
+
+- Redesign PulseDrop with refractive navigation and controls, readable transfer panels, and refreshed Light and Dark themes.
+- Add a desktop navigation rail and a compact mobile tab bar.
+- Refresh the app and launcher icons and the README banner with the new sapphire glass artwork.
+
 ## 0.9.3
 
 - Keep the receive speed steady between resumable chunks.

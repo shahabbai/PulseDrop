@@ -12,6 +12,7 @@
   "include": [
     "src/native-types.d.ts",
     "src/public/*.js",
+    "src/glass.js",
     "src/sender.js",
     "src/settings-ui.js",
     "src/update-ui.js",
