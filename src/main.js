@@ -7,6 +7,7 @@ import { formatBytes, formatSpeed } from "./transfer-format.js";
 import { mountSettings } from "./settings-ui.js";
 import { mountUpdater } from "./update-ui.js";
 import { mountHotspot } from "./hotspot-ui.js";
+import { mountTrustedDevices } from "./trusted-ui.js";
 import { mountGlass } from "./glass.js";
 import { version } from "../package.json";
 
@@ -45,6 +46,7 @@ const incomingProgress = createReceiveProgress();
 let restoreSendFocus = false;
 let updating = false;
 let changingReceiver = false;
+let checkingTrustedAddress = false;
 const receiveCancellation = new Set();
 
 function createId() {
@@ -98,6 +100,9 @@ const els = {
   peerIp: document.querySelector("#peer-ip"),
   peerPort: document.querySelector("#peer-port"),
   peerCode: document.querySelector("#peer-code"),
+  peerCodeField: document.querySelector("#peer-code-field"),
+  pairDevice: document.querySelector("#trust-pair"),
+  trustedSelection: document.querySelector("#trust-selected"),
   receiverList: document.querySelector("#receiver-list"),
   discoveryStatus: document.querySelector("#discovery-status"),
   refreshReceivers: document.querySelector("#refresh-receivers"),
@@ -175,26 +180,38 @@ function renderDiscoveredReceivers() {
     button.setAttribute("aria-pressed", String(Boolean(selected)));
     const info = document.createElement("span");
     const name = document.createElement("strong");
-    name.textContent = peer.name;
+    const trusted = trustedUI.find(peer.id);
+    name.textContent = trusted?.name ?? peer.name;
     const address = document.createElement("small");
     address.textContent = `${platformNames.get(peer.platform) ?? peer.platform} · ${peer.ip}:${peer.port}`;
     info.append(name, address);
     const action = document.createElement("span");
     action.className = "receiver-choice-action";
-    action.textContent = selected ? "Selected" : "Select";
+    action.textContent = trusted
+      ? state.files.length ? "Send now" : "Trusted"
+      : selected ? "Selected" : "Select";
     button.append(icon, info, action);
     button.addEventListener("click", () => {
-      if (sender.busy()) return;
+      if (sender.busy() || checkingTrustedAddress || updating || hotspotUI.busy()) return;
       if (!selected) els.peerCode.value = "";
       state.selectedReceiver = peer;
+      state.manuallyPairedReceiver = null;
       els.peerIp.value = peer.ip;
       els.peerPort.value = String(peer.port);
       state.validationErrors = {};
       state.sendError = "";
       renderSendErrors();
       renderDiscoveredReceivers();
-      els.peerCode.focus();
-      showToast("Enter the code shown on the receiving device");
+      syncSendControls();
+      if (trusted) {
+        if (state.files.length) {
+          if (!els.sendFiles.disabled) els.sendFiles.focus({ preventScroll: true });
+          void sendSelectedFiles();
+        }
+      } else {
+        els.peerCode.focus();
+        showToast("Enter the code shown on the receiving device");
+      }
     });
     row.append(button);
     els.receiverList.append(row);
@@ -321,11 +338,22 @@ function setView(mode, options = {}) {
   }
 
   if (nextView === "settings") settingsUI.refresh();
+  if (nextView !== "home") void trustedUI.refresh();
   els.mainContent.scrollTop = state.scrollPositions[nextView] || 0;
   if (options.focus !== false) {
     const heading = document.querySelector(isHome ? "#home-title" : `#${nextView}-title`);
     heading.focus({ preventScroll: true });
   }
+}
+
+function endpointFromFields() {
+  return { ip: els.peerIp.value.trim(), port: Number(els.peerPort.value.trim()), code: els.peerCode.value.trim() };
+}
+
+function selectedTrustedPeer() {
+  const selected = state.manuallyPairedReceiver ?? state.selectedReceiver;
+  const { ip, port } = endpointFromFields();
+  return selected?.ip === ip && selected.port === port ? trustedUI.find(selected.id) : undefined;
 }
 
 function syncSendControls() {
@@ -338,7 +366,14 @@ function syncSendControls() {
   els.sendFiles.hidden = sending;
   els.cancelSend.disabled = cancelling;
   els.cancelSend.textContent = cancelling ? "Cancelling…" : "Cancel transfer";
-  els.sendFiles.disabled = updating || sending || state.files.length === 0 || hotspotUI.busy();
+  const busy = sending || checkingTrustedAddress || updating || hotspotUI.busy();
+  const trusted = selectedTrustedPeer();
+  els.peerCodeField.hidden = Boolean(trusted);
+  els.pairDevice.hidden = Boolean(trusted);
+  els.pairDevice.disabled = busy;
+  els.trustedSelection.hidden = !trusted;
+  els.trustedSelection.textContent = trusted ? `Trusted · ${trusted.name}` : "";
+  els.sendFiles.disabled = busy || state.files.length === 0;
   if (sending && focusWasSend && !cancelling) els.cancelSend.focus({ preventScroll: true });
   if (!sending && focusWasCancel) els.sendFiles.focus({ preventScroll: true });
   els.clearFiles.disabled = sending || state.files.length === 0;
@@ -349,8 +384,13 @@ function syncSendControls() {
   els.sendFiles.setAttribute("aria-busy", String(sending));
   els.sendFiles.querySelector("span").textContent = sending ? "Sending…" : paused ? "Resume transfer" : "Send files";
   els.sendHint.textContent = sending ? "Keep both devices open until the transfer finishes."
-    : paused ? "Reconnect to the receiver and check its current pairing code before resuming."
-    : state.files.length ? "Choose a receiver and enter its pairing code." : "Add files and choose a receiver to get started.";
+    : paused ? "Reconnect to the receiver and resume the selected file."
+    : trusted ? "Send when the receiver is ready."
+    : state.files.length ? "Choose a receiver or enter its address." : "Add files and choose a receiver to get started.";
+  for (const choice of els.receiverList.querySelectorAll(".receiver-choice")) {
+    const peer = trustedUI.find(choice.dataset.receiverId);
+    if (peer) choice.querySelector(".receiver-choice-action").textContent = state.files.length ? "Send now" : "Trusted";
+  }
   document.querySelectorAll(".remove-file, .receiver-choice").forEach((button) => { button.disabled = sending; });
   hotspotUI.refresh();
 }
@@ -652,6 +692,7 @@ async function loadDeviceProfile() {
     state.selectedIp = profile.primary_ip || (state.networkIps[0] && state.networkIps[0].ip) || null;
     els.statusDot.classList.toggle("online", Boolean(state.selectedIp));
     const name = native.deviceName() || profile.name;
+    state.deviceName = name;
     els.deviceName.textContent = name;
     els.deviceCaption.hidden = name === "This device";
     els.devicePlatform.textContent = platformNames.get(profile.platform) ?? profile.platform;
@@ -754,9 +795,31 @@ function renderSendErrors(focus = false) {
 }
 
 async function sendSelectedFiles() {
-  if (updating || hotspotUI.busy() || sender.busy()) return;
-  const endpoint = { ip: els.peerIp.value.trim(), port: Number(els.peerPort.value.trim()), code: els.peerCode.value.trim() };
-  state.validationErrors = validateReceiver(endpoint);
+  if (updating || hotspotUI.busy() || sender.busy() || checkingTrustedAddress || !state.files.length) return;
+  const endpoint = endpointFromFields();
+  let trusted = selectedTrustedPeer();
+  // Manual addresses and hotspot QR handoffs can work without discovery.
+  if (!trusted && (!endpoint.code || state.hotspotAddress) && trustedUI.client && !state.selectedReceiver
+      && !Object.keys(validateReceiver(endpoint, { requireCode: false })).length) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    checkingTrustedAddress = true;
+    syncSendControls();
+    try {
+      await trustedUI.refresh();
+      const info = await trustedUI.client.identify(endpoint, controller.signal);
+      const peer = trustedUI.find(info.id);
+      if (peer?.key === info.key) trusted = peer;
+    } catch { /* An offline or older receiver can still use the manual PIN flow. */ }
+    finally { clearTimeout(timeout); checkingTrustedAddress = false; syncSendControls(); }
+    const current = endpointFromFields();
+    if (current.ip !== endpoint.ip || current.port !== endpoint.port || current.code !== endpoint.code
+        || updating || hotspotUI.busy() || !state.files.length) return;
+  }
+  if (trusted) {
+    endpoint.trusted = { id: trusted.id, connect: (signal) => trustedUI.client.connect(endpoint, trusted, signal) };
+  }
+  state.validationErrors = validateReceiver(endpoint, { requireCode: !trusted });
   state.sendError = "";
   renderSendErrors(true);
   if (Object.keys(state.validationErrors).length || !state.files.length) return;
@@ -864,16 +927,27 @@ function bindEvents() {
     resetTransferMonitor();
   });
   els.sendFiles.addEventListener("click", sendSelectedFiles);
+  els.pairDevice.addEventListener("click", () => {
+    const endpoint = endpointFromFields();
+    state.validationErrors = validateReceiver(endpoint);
+    state.sendError = "";
+    renderSendErrors(true);
+    if (!Object.keys(state.validationErrors).length) void trustedUI.pair(endpoint);
+  });
   els.refreshReceivers.addEventListener("click", () => receiverDiscovery.refresh());
   for (const input of [els.peerIp, els.peerPort]) {
     input.addEventListener("input", () => {
       if (state.selectedReceiver) els.peerCode.value = "";
       state.selectedReceiver = null;
+      state.manuallyPairedReceiver = null;
+      state.hotspotAddress = false;
       renderDiscoveredReceivers();
+      syncSendControls();
     });
   }
   for (const input of [els.peerIp, els.peerPort, els.peerCode]) {
     input.addEventListener("input", () => {
+      state.hotspotAddress = false;
       delete state.validationErrors[input.id];
       state.sendError = "";
       renderSendErrors();
@@ -932,6 +1006,8 @@ const hotspotUI = mountHotspot({
   connectionInfo: () => state.receiver ? { ip: selectedReceiverIp(), port: state.receiver.port, code: state.receiver.code } : null,
   connected: ({ ip, port, code }) => {
     state.selectedReceiver = null;
+    state.manuallyPairedReceiver = null;
+    state.hotspotAddress = true;
     els.peerIp.value = ip; els.peerPort.value = String(port); els.peerCode.value = code;
     state.validationErrors = {}; state.sendError = "";
     renderSendErrors(); syncSendControls();
@@ -939,6 +1015,8 @@ const hotspotUI = mountHotspot({
   onChange: () => syncSendControls(),
   refreshNetwork: async () => {
     state.selectedReceiver = null;
+    state.manuallyPairedReceiver = null;
+    state.hotspotAddress = false;
     for (const input of [els.peerIp, els.peerPort, els.peerCode]) input.value = "";
     state.validationErrors = {};
     renderSendErrors();
@@ -953,6 +1031,22 @@ const hotspotUI = mountHotspot({
     if (address && state.networkIps.some((candidate) => candidate.ip === address)) state.selectedIp = address;
     renderReceiver();
   }
+});
+
+const trustedUI = mountTrustedDevices({
+  invoke,
+  isReceiveView: () => state.activeView === "receive",
+  canPoll: () => Boolean(state.receiver) || state.activeView === "send" || state.activeView === "settings",
+  showToast,
+  changed: () => { renderDiscoveredReceivers(); syncSendControls(); },
+  paired: ({ ip, port }, peer) => {
+    const current = endpointFromFields();
+    if (!peer || current.ip !== ip || current.port !== port) return;
+    state.manuallyPairedReceiver = { id: peer.id, ip, port };
+    els.peerCode.value = "";
+    syncSendControls();
+  },
+  deviceName: () => state.deviceName
 });
 
 const updateUI = mountUpdater({

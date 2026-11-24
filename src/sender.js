@@ -1,7 +1,9 @@
 import { formatBytes, formatSpeed } from "./transfer-format.js";
 import { CHUNK, createResumableSender, ResumeCancelled, ResumePaused } from "./resumable-send.js";
 
-/** @typedef {{ip: string, port: number, code: string}} Endpoint */
+/** @typedef {import("./resumable-send.js").Endpoint & {
+ *  trusted?: { id: string, connect: (signal: AbortSignal) => Promise<import("./trusted-client.js").TrustedTransport> }
+ * }} Endpoint */
 /** @typedef {import("./resumable-send.js").Attempt} Attempt */
 /** @typedef {{controller: AbortController, endpoint: Endpoint, cancelRequested: boolean, activeId: string | null, loaded: number, supportsCancellation: boolean, resumeReceiver?: string, attempt?: Attempt, reason?: string, savedTransferId?: string, cancelPromise?: Promise<void>}} Session */
 /** @typedef {{kind?: "sending" | "sent" | "failed" | "cancelled" | "paused", label?: string, progress?: number, speed?: number}} ActivityPatch */
@@ -125,6 +127,12 @@ export function createSender({
     const timeout = setTimeout(abort, receiverCheckTimeoutMs);
     try {
       checkCancellation(session);
+      if (endpoint.trusted) {
+        if (!globalThis.crypto?.subtle) throw new Error("Trusted transfers require a secure WebView.");
+        session.endpoint = { ...endpoint, trust: await endpoint.trusted.connect(controller.signal) };
+        session.resumeReceiver = "trusted:" + endpoint.trusted.id;
+        return;
+      }
       const response = await fetch(receiverUrl(endpoint, "/health"), { cache: "no-store", signal: controller.signal });
       checkCancellation(session);
       if (response.status === 404 || response.status === 405) return;
@@ -151,13 +159,18 @@ export function createSender({
       if (await resumable.cancel(attempt, endpoint).catch(() => null) === "completed") return;
       checkCancellation(session);
     }
+    const signal = session.controller.signal;
+    /** @param {string} label */
+    function waiting(label) {
+      updateActivity(activityId, { label, speed: 0 });
+      updateTransferMonitor({ name: label, totalLoaded: session.loaded,
+        totalBytes: context.totalBytes, speed: 0, active: true });
+    }
+    let offerId;
     try {
-      await resumable.send(file, endpoint, attempt, session.controller.signal, {
-        waiting: (label) => {
-          updateActivity(activityId, { label, speed: 0 });
-          updateTransferMonitor({ name: label, totalLoaded: session.loaded,
-            totalBytes: context.totalBytes, speed: 0, active: true });
-        },
+      offerId = await endpoint.trust?.approveFile(attempt.id, file, signal, waiting);
+      await resumable.send(file, { ...endpoint, offerId }, attempt, signal, {
+        waiting,
         progress(loaded, speed) {
           session.loaded = context.completedBytes + loaded;
           const percent = context.totalBytes ? 100 * session.loaded / context.totalBytes : 0;
@@ -175,6 +188,8 @@ export function createSender({
       if (error instanceof ResumeCancelled) await cancel(true);
       if (session.cancelPromise) await session.cancelPromise;
       if (session.savedTransferId !== attempt.id) throw error;
+    } finally {
+      if (offerId) await endpoint.trust?.finishFile(attempt.id, offerId);
     }
     updateActivity(activityId, { kind: "sent", label: "Sent", progress: 100, speed: 0 });
   }
@@ -410,7 +425,7 @@ export function createSender({
         updateTransferMonitor({ name: file.name, totalLoaded: completedBytes, totalBytes, percent: totalBytes ? completedBytes / totalBytes * 100 : 0, speed: 0, active: true });
         try {
           if (session.resumeReceiver) {
-            await sendResumable(file, endpoint, activityId, { completedBytes, totalBytes }, session);
+            await sendResumable(file, session.endpoint, activityId, { completedBytes, totalBytes }, session);
           } else {
             await sendFile(file, endpoint, activityId, { completedBytes, totalBytes }, session, transferId);
           }

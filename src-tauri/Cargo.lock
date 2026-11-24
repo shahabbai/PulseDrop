@@ -2750,10 +2750,12 @@ dependencies = [
 
 [[package]]
 name = "pulse_drop"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
+ "base64 0.22.1",
  "cc",
  "if-addrs",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
@@ -2761,6 +2763,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
+ "tempfile",
  "webkit2gtk",
  "windows",
 ]

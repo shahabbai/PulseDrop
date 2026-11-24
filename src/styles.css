@@ -499,7 +499,12 @@ input[aria-invalid="true"] { border-color: var(--color-danger) !important; }
   min-height: clamp(282px, 47vh, 415px);
   padding: var(--space-5) clamp(12px, 3vw, 42px);
 }
-.home-intro-copy { position: relative; z-index: 1; }
+.home-intro-copy {
+  position: relative;
+  z-index: 1;
+  -webkit-user-select: none;
+  user-select: none;
+}
 .home-intro h1 {
   font-size: clamp(46px, 6.1vw, 82px);
   line-height: .99;
@@ -949,3 +954,31 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .update-row > div { min-width: min(100%, 210px); }
 .update-row button { min-height: 44px; }
 .update-row progress { width: 100%; margin-top: var(--space-2); accent-color: var(--color-accent); }
+
+.trust-pair-action { color: var(--color-accent-text); font-size: 13px; }
+.trust-pair-action .text-button { padding-inline: 0; }
+.trust-pair-action span { overflow-wrap: anywhere; }
+.trust-panel, .trust-dialog { padding: var(--space-5); }
+.trust-panel h2, .trust-dialog h2 { margin: 0 0 var(--space-2); }
+.trust-panel p, .trust-dialog p { margin-block: var(--space-2); }
+.trust-list, .trust-policy, .trust-request { display: grid; gap: var(--space-3); }
+.trust-list:not(:empty) { margin-block-start: var(--space-3); }
+.trust-request + .trust-request, .trust-peer + .trust-peer {
+  padding-block-start: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.trust-request p { margin: 0; }
+.trust-peer summary { gap: var(--space-2); }
+.trust-request strong, .trust-peer summary strong { overflow-wrap: anywhere; }
+.trust-peer form { padding-block: var(--space-3); }
+.trust-code { font-size: 1.05rem; letter-spacing: .08em; overflow-wrap: anywhere; }
+.trust-checkbox, .trust-actions { display: flex; align-items: center; gap: var(--space-2); }
+.trust-actions { flex-wrap: wrap; justify-content: flex-end; }
+.trust-checkbox input { accent-color: var(--color-accent); }
+.trust-dialog {
+  color: var(--color-text);
+  width: min(440px, calc(100% - 2rem));
+  margin: auto;
+  border-radius: var(--radius-lg);
+}
+.trust-dialog::backdrop { background: rgb(12 19 36 / .58); }

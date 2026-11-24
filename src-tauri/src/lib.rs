@@ -13,7 +13,7 @@ use std::{
         Mutex,
     },
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -26,6 +26,7 @@ mod network;
 mod receive;
 mod resume;
 mod transfers;
+mod trusted;
 #[cfg(desktop)]
 mod updates;
 use network::*;
@@ -134,15 +135,6 @@ fn open_wifi_settings(app: AppHandle, hosting: bool) -> Result<(), String> {
 struct DiscoveryState {
     id: String,
     scan: Mutex<()>,
-}
-
-impl Default for DiscoveryState {
-    fn default() -> Self {
-        Self {
-            id: discovery::instance_id(),
-            scan: Mutex::new(()),
-        }
-    }
 }
 
 #[tauri::command]
@@ -286,7 +278,10 @@ fn start_receiver(
         .set_nonblocking(true)
         .map_err(|error| format!("Could not configure receiver: {error}"))?;
 
-    let code = pairing_code();
+    let code = pairing_code()?;
+    if let Ok(store) = app.state::<trusted::Local>().store() {
+        store.start()?;
+    }
     let stop = std::sync::Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
     let thread_code = code.clone();
@@ -313,6 +308,7 @@ fn start_receiver(
         Err(error) => (None, Some(error)),
     };
 
+    let thread_name = name.clone();
     thread::spawn(move || {
         receiver_loop(
             listener,
@@ -322,6 +318,7 @@ fn start_receiver(
             thread_stop,
             thread_transfers,
             receiver_id,
+            thread_name,
         );
     });
 
@@ -353,6 +350,9 @@ fn stop_receiver(app: AppHandle, state: State<'_, ReceiverState>) -> Result<(), 
 
     if let Some(active) = runtime.take() {
         state.resumes.suspend(&active.stop);
+        if let Ok(store) = app.state::<trusted::Local>().store() {
+            store.stop();
+        }
         active.transfers.cancel_all();
         for progress in state.resumes.pending(&active.inbox_dir).unwrap_or_default() {
             let _ = app.emit("file-receive-progress", progress);
@@ -758,6 +758,7 @@ fn receiver_loop(
     stop: std::sync::Arc<AtomicBool>,
     transfers: std::sync::Arc<transfers::Transfers>,
     receiver_id: Option<String>,
+    receiver_name: String,
 ) {
     let mut last_pause_check = Instant::now();
     while !stop.load(Ordering::Relaxed) {
@@ -777,6 +778,7 @@ fn receiver_loop(
                 let transfers = transfers.clone();
                 let stop = stop.clone();
                 let receiver_id = receiver_id.clone();
+                let receiver_name = receiver_name.clone();
                 thread::spawn(move || {
                     if let Err(error) = handle_stream(
                         stream,
@@ -786,6 +788,7 @@ fn receiver_loop(
                         &transfers,
                         &stop,
                         receiver_id.as_deref(),
+                        &receiver_name,
                     ) {
                         eprintln!("Receiver error: {error}");
                     }
@@ -810,6 +813,7 @@ fn handle_stream(
     transfers: &transfers::Transfers,
     stop: &AtomicBool,
     receiver_id: Option<&str>,
+    receiver_name: &str,
 ) -> Result<(), String> {
     stream
         .set_nonblocking(false)
@@ -826,6 +830,30 @@ fn handle_stream(
     if request.method == "OPTIONS" {
         write_response(&mut stream, 204, "No Content", "", "text/plain")?;
         return Ok(());
+    }
+
+    if request.path.starts_with("/trust/") {
+        if !stop.load(Ordering::Relaxed) && receiver_id.is_some() {
+            if let Ok(store) = app.state::<trusted::Local>().store() {
+                return handle_trusted(
+                    &mut stream,
+                    app,
+                    inbox_dir,
+                    stop,
+                    store,
+                    receiver_name,
+                    expected_code,
+                    request,
+                );
+            }
+        }
+        return write_response(
+            &mut stream,
+            404,
+            "Not Found",
+            "Trusted transfers are unavailable on this receiver.",
+            "text/plain",
+        );
     }
 
     if request.method == "GET" && request.path == "/health" {
@@ -872,7 +900,7 @@ fn handle_stream(
     }
 
     if resumable {
-        return handle_resume(&mut stream, app, inbox_dir, stop, &request);
+        return handle_resume(&mut stream, app, inbox_dir, stop, &request, write_response);
     }
 
     if control_request {
@@ -965,12 +993,145 @@ fn handle_stream(
     Ok(())
 }
 
+fn handle_trusted(
+    stream: &mut TcpStream,
+    app: &AppHandle,
+    inbox: &Path,
+    stop: &AtomicBool,
+    store: &trusted::Store,
+    receiver_name: &str,
+    pin: &str,
+    mut request: HttpRequest,
+) -> Result<(), String> {
+    if request.method == "GET" && request.path == "/trust/info" {
+        return write_response(
+            stream,
+            200,
+            "OK",
+            &store.info().to_string(),
+            "application/json",
+        );
+    }
+    let Some(proof) = store.authenticate(&request.method, &request.target, &request.query) else {
+        return write_response(
+            stream,
+            403,
+            "Forbidden",
+            "Could not verify the request.",
+            "text/plain",
+        );
+    };
+    let key = proof.sender.to_owned();
+    let nonce = proof.nonce.to_owned();
+    let reply = |stream: &mut TcpStream, status, reason: &str, body: &str, content_type: &str| {
+        let signature = store.sign_reply(&nonce, status, body);
+        let header = format!("X-PulseDrop-Proof: {signature}\r\n");
+        write_http_response(stream, status, reason, body, content_type, &header)
+    };
+    let value = |key| {
+        request
+            .query
+            .get(key)
+            .map(String::as_str)
+            .unwrap_or_default()
+    };
+    let file_id = value("transfer_id");
+    let offer_id = value("offer_id");
+    let name = sanitize_file_name(value("name"));
+    let size = value("size").parse::<u64>().ok();
+    let answer = match (request.method.as_str(), request.path.as_str()) {
+        ("POST", "/trust/pair") => {
+            if value("code") != pin {
+                return reply(
+                    stream,
+                    403,
+                    "Forbidden",
+                    "Pairing code does not match.",
+                    "text/plain",
+                );
+            }
+            store
+                .pair_request(&key, &nonce, value("name"), proof.challenge)
+                .map(|()| serde_json::json!({ "name": receiver_name, "decision": "pending" }))
+        }
+        ("GET", "/trust/pair") => store
+            .pair_status(&key, value("pair_id"))
+            .ok_or("This pairing request expired.".into()),
+        ("GET", "/trust/device") => {
+            if store.peer(&key).is_none() {
+                return reply(
+                    stream,
+                    403,
+                    "Forbidden",
+                    "This device is no longer trusted. Pair again.",
+                    "text/plain",
+                );
+            }
+            Ok(serde_json::Value::Null)
+        }
+        ("POST", "/trust/file") => size
+            .ok_or_else(|| "Invalid file size.".to_string())
+            .and_then(|size| {
+                store.offer_file(&key, offer_id, file_id, &name, size, proof.challenge)
+            }),
+        ("GET", "/trust/file") => store
+            .file_status(&key, offer_id)
+            .ok_or("This file request expired or trust was revoked.".into()),
+        ("POST", "/trust/file/finish") => {
+            store.finish_offer(&key, offer_id, file_id);
+            Ok(serde_json::Value::Null)
+        }
+        ("GET" | "POST", "/trust/chunk") | ("POST", "/trust/chunk/cancel") => {
+            let cancel = request.path.ends_with("/cancel");
+            let metadata = if request.method == "POST" && !cancel {
+                let Some(size) = size else {
+                    return reply(
+                        stream,
+                        400,
+                        "Bad Request",
+                        "Invalid file size.",
+                        "text/plain",
+                    );
+                };
+                Some((name.as_str(), size))
+            } else {
+                None
+            };
+            let allowed = resume::valid_id(file_id)
+                && if cancel {
+                    store.peer(&key).is_some()
+                } else {
+                    store.allow_chunk(&key, offer_id, file_id, metadata, proof.challenge)
+                };
+            if !allowed {
+                return reply(
+                    stream,
+                    403,
+                    "Forbidden",
+                    "This transfer needs receiver approval or trust was revoked.",
+                    "text/plain",
+                );
+            }
+            let id = store.scoped_id(&key, file_id);
+            request.query.insert("transfer_id".into(), id);
+            request.path = if cancel { "/resume/cancel" } else { "/resume" }.into();
+            return handle_resume(stream, app, inbox, stop, &request, reply);
+        }
+        _ => return reply(stream, 404, "Not Found", "Not found", "text/plain"),
+    };
+    match answer {
+        Ok(payload) => reply(stream, 200, "OK", &payload.to_string(), "application/json"),
+        Err(message) => reply(stream, 409, "Conflict", &message, "text/plain"),
+    }
+}
+
 fn handle_resume(
     stream: &mut TcpStream,
     app: &AppHandle,
     inbox: &Path,
     stop: &AtomicBool,
     request: &HttpRequest,
+    reply: impl Fn(&mut TcpStream, u16, &str, &str, &str) -> Result<(), String>,
 ) -> Result<(), String> {
     let value = |key| {
         request
@@ -981,7 +1142,7 @@ fn handle_resume(
     };
     let id = value("transfer_id");
     if !resume::valid_id(id) {
-        return write_response(
+        return reply(
             stream,
             400,
             "Bad Request",
@@ -1006,7 +1167,7 @@ fn handle_resume(
         let (Ok(size), Ok(offset), Some(length)) =
             (value("size").parse(), value("offset").parse(), length)
         else {
-            return write_response(
+            return reply(
                 stream,
                 400,
                 "Bad Request",
@@ -1055,7 +1216,7 @@ fn handle_resume(
             })
     };
     match result {
-        Ok(status) => write_response(
+        Ok(status) => reply(
             stream,
             200,
             "OK",
@@ -1069,13 +1230,14 @@ fn handle_resume(
                 std::io::ErrorKind::WouldBlock => (503, "Receiver Busy"),
                 _ => (500, "Internal Server Error"),
             };
-            write_response(stream, status, reason, &err.to_string(), "text/plain")
+            reply(stream, status, reason, &err.to_string(), "text/plain")
         }
     }
 }
 
 struct HttpRequest {
     method: String,
+    target: String,
     path: String,
     query: HashMap<String, String>,
     headers: HashMap<String, String>,
@@ -1130,6 +1292,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
 
     Ok(HttpRequest {
         method,
+        target: target.into(),
         path,
         query,
         headers,
@@ -1158,12 +1321,23 @@ fn write_response_with_resume(
     let capability = receiver_id
         .map(|id| format!("X-PulseDrop-Resume: {id}\r\n"))
         .unwrap_or_default();
+    write_http_response(stream, status, reason, body, content_type, &capability)
+}
+
+fn write_http_response(
+    stream: &mut TcpStream,
+    status: u16,
+    reason: &str,
+    body: &str,
+    content_type: &str,
+    capability: &str,
+) -> Result<(), String> {
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
          Access-Control-Allow-Headers: content-type\r\n\
-         Access-Control-Expose-Headers: X-PulseDrop-Cancellation, X-PulseDrop-Resume\r\n\
+         Access-Control-Expose-Headers: X-PulseDrop-Cancellation, X-PulseDrop-Resume, X-PulseDrop-Proof\r\n\
          X-PulseDrop-Cancellation: 1\r\n\
          {capability}Content-Type: {content_type}; charset=utf-8\r\n\
          Content-Length: {}\r\n\
@@ -1196,8 +1370,11 @@ fn percent_decode(value: &str) -> String {
 
     while index < bytes.len() {
         if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let Ok(hex) = u8::from_str_radix(&value[index + 1..index + 3], 16) {
-                output.push(hex);
+            if let (Some(high), Some(low)) = (
+                char::from(bytes[index + 1]).to_digit(16),
+                char::from(bytes[index + 2]).to_digit(16),
+            ) {
+                output.push((high * 16 + low) as u8);
                 index += 3;
                 continue;
             }
@@ -1307,12 +1484,13 @@ fn inbox_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("Could not resolve app data directory: {error}"))
 }
 
-fn pairing_code() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    format!("{:06}", nanos % 1_000_000)
+fn pairing_code() -> Result<String, String> {
+    loop {
+        let value = u32::from_ne_bytes(trusted::random::<4>()?);
+        if value < 4_294_000_000 {
+            return Ok(format!("{:06}", value % 1_000_000));
+        }
+    }
 }
 
 fn local_ipv4_candidates() -> Vec<NetworkAddress> {
@@ -1493,14 +1671,28 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ReceiverState::default())
-        .manage(DiscoveryState::default())
         .manage(hotspot::HotspotState::default())
         .manage(camera::CameraAccess::default())
         .setup(|app| {
             #[cfg(target_os = "linux")]
             camera::configure(app)?;
-            #[cfg(not(target_os = "linux"))]
-            let _ = app;
+            let local = trusted::Local(
+                app.path()
+                    .app_local_data_dir()
+                    .map_err(|error| {
+                        format!("Could not resolve the trusted-device directory: {error}")
+                    })
+                    .and_then(|path| trusted::Store::open(path.join("trusted-devices-v1.json"))),
+            );
+            let id = local
+                .store()
+                .map(|store| store.id.clone())
+                .unwrap_or_else(|_| discovery::instance_id());
+            app.manage(local);
+            app.manage(DiscoveryState {
+                id,
+                scan: Mutex::new(()),
+            });
             Ok(())
         });
     #[cfg(desktop)]
@@ -1536,6 +1728,14 @@ pub fn run() {
             open_wifi_settings,
             device_profile,
             discover_receivers,
+            trusted::trusted_snapshot,
+            trusted::trusted_sign,
+            trusted::trusted_verify,
+            trusted::trusted_pair_code,
+            trusted::trusted_remember,
+            trusted::trusted_decide,
+            trusted::trusted_set_policy,
+            trusted::trusted_forget,
             start_receiver,
             stop_receiver,
             cancel_receive,

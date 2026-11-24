@@ -1,10 +1,12 @@
+import { TrustedVerificationError } from "./trusted-client.js";
+
 // Keep the same chunk size and digest format as the receiver.
 export const CHUNK = 4 * 1024 * 1024;
 const EMPTY_DIGEST = "0".repeat(64);
 const RETENTION = 7 * 24 * 60 * 60 * 1000;
 const RETRY_DELAYS = [1000, 2000, 4000, 8000, 8000, 8000, 8000];
 
-/** @typedef {{ip: string, port: number, code: string}} Endpoint */
+/** @typedef {{ip: string, port: number, code: string, trust?: import("./trusted-client.js").TrustedTransport, offerId?: string}} Endpoint */
 /** @typedef {{id: string, key: string, cancelled: boolean, updated: number}} Attempt */
 /** @typedef {{phase: "paused" | "completed" | "cancelled", offset: number, digest: string}} Checkpoint */
 /** @typedef {import("./native-types").SendFile} SendFile */
@@ -87,18 +89,26 @@ export function createResumableSender({ fetch, read = (blob) => blob.arrayBuffer
     signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(abort, body ? 120_000 : 4000);
     try {
-      const response = await fetch(url, {
-        method: post || body ? "POST" : "GET", body,
-        cache: "no-store", signal: controller.signal,
-        headers: body ? { "Content-Type": "application/octet-stream" } : undefined
-      });
-      if (response.status === 403) throw new ResumePaused("Pairing code changed or does not match. Enter the current code and send again.");
+      const method = post || body ? "POST" : "GET";
+      const response = endpoint.trust
+        ? await endpoint.trust.request(path === "/resume" ? "/trust/chunk" : "/trust/chunk/cancel", {
+          method, body, signal: controller.signal,
+          fields: { transfer_id: attempt.id, offer_id: endpoint.offerId || "", ...fields }
+        })
+        : await fetch(url, {
+          method, body, cache: "no-store", signal: controller.signal,
+          headers: body ? { "Content-Type": "application/octet-stream" } : undefined
+        });
+      if (response.status === 403) throw new ResumePaused(endpoint.trust
+        ? await response.text()
+        : "Pairing code changed or does not match. Enter the current code and send again.");
       if ([408, 429, 500, 502, 503, 504].includes(response.status)) throw new Retryable();
       if (!response.ok) throw new Error(await response.text() || "The receiver refused the chunk.");
       return await response.json();
     } catch (error) {
       signal?.throwIfAborted();
       if (error instanceof TypeError || controller.signal.aborted) throw new Retryable();
+      if (error instanceof TrustedVerificationError) throw new ResumePaused(error.message);
       throw error;
     } finally {
       clearTimeout(timer);

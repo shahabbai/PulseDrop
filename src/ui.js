@@ -1,5 +1,5 @@
 // UI validation only; the receiver protocol and request construction stay in main.js.
-export function validateReceiver({ ip, port, code }) {
+export function validateReceiver({ ip, port, code }, { requireCode = true } = {}) {
   const errors = {};
   if (!ip) {
     errors["peer-ip"] = "Choose a nearby device or enter its IP address.";
@@ -18,7 +18,7 @@ export function validateReceiver({ ip, port, code }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     errors["peer-port"] = "Enter a port between 1 and 65535.";
   }
-  if (!/^\d{6}$/.test(code)) {
+  if (requireCode && !/^\d{6}$/.test(code)) {
     errors["peer-code"] = "Enter the 6-digit code shown on the receiver.";
   }
   return errors;

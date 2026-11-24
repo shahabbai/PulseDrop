@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0
+
+- Pair trusted devices once and send files with one tap over LAN or a hotspot.
+- Manage trusted devices in Settings and optionally accept files automatically within per-device size and filename-extension limits.
+- Prevent accidental text selection in the Home headline and description.
+- Prefer Google's Maven Central mirror for Android dependencies to avoid release build rate limits.
+
 ## 1.0.2
 
 - Show the desktop account name in device labels and receiver discovery on LAN and hotspots.

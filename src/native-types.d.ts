@@ -72,6 +72,11 @@ export type NativeUpdates = {
   status(): Promise<UpdateStatus>;
   install?(): Promise<void>;
 };
+export type TrustPolicy = { automatic: boolean; max_mib: number; extensions: string };
+export type TrustedPeer = { id: string; key: string; name: string; policy: TrustPolicy };
+export type TrustRequest = { id: string; device: string } &
+  ({ kind: "pair"; code: string } | { kind: "file"; name: string; size: number });
+export type TrustSnapshot = { key: string; peers: TrustedPeer[]; pending: TrustRequest[] };
 type Command<Args extends unknown[], Result> = { args: Args; result: Result };
 type NativeCommands = {
   device_profile: Command<[], {
@@ -82,6 +87,14 @@ type NativeCommands = {
     network_ips: NetworkAddress[];
   }>;
   discover_receivers: Command<[], { id: string; name: string; ip: string; port: number; platform: string }[]>;
+  trusted_snapshot: Command<[], TrustSnapshot>;
+  trusted_sign: Command<[{ method: "GET" | "POST"; target: string }], string>;
+  trusted_verify: Command<[{ key: string; nonce: string; status: number; body: string; proof: string }], boolean>;
+  trusted_pair_code: Command<[{ key: string; id: string }], string>;
+  trusted_remember: Command<[{ key: string; name: string }], void>;
+  trusted_decide: Command<[{ id: string; kind: TrustRequest["kind"]; accept: boolean }], void>;
+  trusted_set_policy: Command<[{ id: string; policy: TrustPolicy }], void>;
+  trusted_forget: Command<[{ id: string }], void>;
   start_receiver: Command<[{ receiverName: string | null }], Receiver>;
   stop_receiver: Command<[], void>;
   cancel_receive: Command<[{ transferId: string | null }], void>;

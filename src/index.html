@@ -201,7 +201,11 @@
                       <div class="field"><label for="peer-port">Port</label><input id="peer-port" inputmode="numeric" autocomplete="off" placeholder="53612" aria-describedby="peer-port-error"/><small class="field-error" id="peer-port-error" hidden></small></div>
                     </div>
                   </details>
-                  <div class="pairing-field field"><label for="peer-code">Pairing code</label><input id="peer-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6-digit code" aria-describedby="peer-code-help peer-code-error"/><small id="peer-code-help">Enter the code shown on the receiving device.</small><small class="field-error" id="peer-code-error" hidden></small></div>
+                  <div class="pairing-field field" id="peer-code-field"><label for="peer-code">Pairing code</label><input id="peer-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6-digit code" aria-describedby="peer-code-help peer-code-error"/><small id="peer-code-help">Enter the code shown on the receiving device.</small><small class="field-error" id="peer-code-error" hidden></small></div>
+                  <div class="trust-pair-action" id="trust-pair-action" hidden>
+                    <button class="text-button" type="button" id="trust-pair">Pair for next time</button>
+                    <span id="trust-selected" hidden></span>
+                  </div>
                   <div class="destination-footer"><p id="send-hint">Add files and choose a receiver to get started.</p><button class="primary-action" type="button" id="send-files" disabled><svg class="icon" aria-hidden="true"><use href="#icon-send"/></svg><span>Send files</span></button><button class="secondary-action cancel-action" type="button" id="cancel-send" hidden>Cancel transfer</button></div>
                 </aside>
               </div>
@@ -241,6 +245,11 @@
                       <div class="endpoint-cell pairing-cell"><span>Pairing code</span><button class="copy-value" type="button" id="copy-code" title="Copy pairing code" aria-label="Copy pairing code" disabled><strong id="session-code">--</strong><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
                     </div>
                     <p class="receiver-discovery-status" id="receiver-discovery-status" role="status" aria-live="polite" hidden></p>
+                  </section>
+                  <section class="panel trust-panel" id="trust-incoming" hidden aria-labelledby="trust-incoming-title">
+                    <h2 id="trust-incoming-title">Incoming requests</h2>
+                    <p class="sr-only" id="trust-announcement" role="status"></p>
+                    <div class="trust-list" id="trust-requests"></div>
                   </section>
                   <section class="transfer-monitor panel receive-monitor" id="receive-monitor" hidden aria-labelledby="receive-label">
                     <h2 class="transfer-label" id="receive-label">Receiving</h2>
@@ -283,6 +292,13 @@
                       <label class="preference-row" for="reduce-motion"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg></span><span class="preference-copy"><strong>Reduce animations</strong><span>Keep transitions to a minimum. System preferences are always respected.</span></span><input class="switch" id="reduce-motion" type="checkbox" role="switch"/></label>
                     </div>
                   </section>
+                  <section class="settings-section" id="trust-settings" hidden aria-labelledby="trust-settings-title">
+                    <h2 id="trust-settings-title">Trusted devices</h2>
+                    <div class="panel trust-panel settings-group">
+                      <p class="muted" id="trust-settings-status" role="status">Pair a device from Send to see it here.</p>
+                      <div class="trust-list" id="trust-peers"></div>
+                    </div>
+                  </section>
                   <section class="settings-section" aria-labelledby="connection-heading"><h2 id="connection-heading">Connection</h2><div class="panel settings-group"><div class="preference-row"><span class="small-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div><strong>Local network discovery</strong><p>Automatically looks for active receivers while you’re on Send.</p></div><span class="value-badge">Automatic</span></div><details class="disclosure diagnostics-disclosure"><summary>Troubleshoot a connection<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary><p class="muted">Network and firewall checks are available on Windows.</p><div class="diagnostics-toolbar"><span>Connection health</span><button class="icon-button" type="button" id="settings-refresh" title="Refresh connection checks" aria-label="Refresh connection checks"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></button></div><div class="diagnostic-list">
                     <section class="diagnostic-card" id="network-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-wifi"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Network profile</h3><span class="diagnostic-status" id="network-status">Checking</span></div><p id="network-message">Checking network profile…</p><small id="network-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-network" disabled>Fix</button></section>
                     <section class="diagnostic-card" id="firewall-card" data-status="unknown"><span class="diagnostic-icon"><svg class="icon" aria-hidden="true"><use href="#icon-shield"/></svg></span><div class="diagnostic-copy"><div class="diagnostic-title-row"><h3>Windows Firewall</h3><span class="diagnostic-status" id="firewall-status">Checking</span></div><p id="firewall-message">Checking inbound access…</p><small id="firewall-detail">Waiting for diagnostics</small></div><button class="fix-action secondary-action" type="button" id="fix-firewall" disabled>Fix</button></section>
@@ -312,6 +328,16 @@
       </main>
       <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </div>
+    <dialog class="panel trust-dialog" id="trust-pair-dialog" aria-labelledby="trust-pair-title">
+      <h2 id="trust-pair-title">Pair device</h2>
+      <p id="trust-pair-instruction"></p>
+      <strong class="mono trust-code" id="trust-pair-code" hidden></strong>
+      <p class="muted" id="trust-pair-status" role="status"></p>
+      <div class="trust-actions">
+        <button class="secondary-action" id="trust-pair-close" type="button" autofocus>Close</button>
+        <button class="primary-action" id="trust-pair-confirm" type="button" hidden>Codes match · Trust device</button>
+      </div>
+    </dialog>
     <script src="./main.js" type="module"></script>
   </body>
 </html>

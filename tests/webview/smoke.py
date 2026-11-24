@@ -1,6 +1,6 @@
 """Exercise PulseDrop in its Linux WebView with an isolated data directory."""
 import argparse
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from hashlib import sha256
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -382,6 +382,170 @@ def check_resumed_upload(app, prepared):
     print("PASS persisted transfer across app restart and interrupted TCP chunk, with exact bytes", flush=True)
 
 
+
+@contextmanager
+def webview_driver(directory, native_driver, isolated_bus=False):
+    port, native_port = unused_ports()
+    directory.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    for category in ("DATA", "CONFIG", "CACHE"):
+        env[f"XDG_{category}_HOME"] = str(directory / category.lower())
+    driver = ["tauri-driver", "--port", str(port), "--native-port", str(native_port),
+              "--native-driver", native_driver]
+    if isolated_bus and shutil.which("dbus-run-session"):
+        driver = ["dbus-run-session", "--", *driver]
+    with (directory / "driver.log").open("w+") as log:
+        process = subprocess.Popen(driver, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            wait_for_driver(process, port)
+            wait_for_driver(process, native_port)
+            yield port
+        except Exception:
+            log.seek(0)
+            print(log.read(), flush=True)
+            raise
+        finally:
+            # Stop the driver and app children before deleting their profile.
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+
+
+def check_trusted_transfers(sender, binary, native_driver, directory):
+    sender.nav("receive")
+    sender.click("#toggle-receiver")
+    wait_for("first receiver to stop", lambda: sender.text("#receiver-state") == "Offline")
+    with webview_driver(directory / "trusted", native_driver, isolated_bus=True) as port:
+        receiver = WebView(port, binary)
+        try:
+            wait_for("second app to start", lambda: receiver.script("return !document.querySelector('#boot-screen')"))
+
+            def start():
+                receiver.nav("receive")
+                receiver.click("#toggle-receiver")
+                wait_for("trusted receiver online", lambda: receiver.text("#receiver-state") == "Online")
+                receiver_port = int(receiver.text("#session-port"))
+                with urlopen(f"http://127.0.0.1:{receiver_port}/trust/info", timeout=5) as response:
+                    identity = json.load(response)
+                return receiver_port, identity
+
+            receiver_port, identity = start()
+            code = receiver.text("#session-code")
+            inbox = Path(receiver.text("#inbox-path"))
+            assert inbox.is_relative_to(directory / "trusted")
+
+            sender.nav("send")
+            sender.click("#clear-files")
+            sender.fill("#peer-ip", "127.0.0.1")
+            sender.fill("#peer-port", receiver_port)
+            sender.fill("#peer-code", code)
+            wait_for("pair action", lambda: sender.script(
+                "return !document.querySelector('#trust-pair-action').hidden"))
+            sender.click("#trust-pair")
+            wait_for("pairing codes", lambda: receiver.text("#trust-requests .trust-code")
+                     if receiver.script("return !!document.querySelector('#trust-requests .trust-code')") else None)
+            receiver_code = receiver.text("#trust-requests .trust-code")
+            wait_for("matching pairing codes", lambda: sender.text("#trust-pair-code") == receiver_code)
+            assert sender.script("return document.querySelector('#trust-pair-confirm').hidden")
+            receiver.click("#trust-requests .primary-action")
+            wait_for("receiver pairing approval", lambda: sender.script(
+                "return !document.querySelector('#trust-pair-confirm').hidden"))
+            sender.click("#trust-pair-confirm")
+            wait_for("sender pairing approval", lambda: sender.script(
+                "return !document.querySelector('#trust-pair-dialog').open"))
+
+            choice = f'.receiver-choice[data-receiver-id="{identity["id"]}"]'
+
+            def select_file(name, repetitions=100):
+                path = directory / name
+                path.write_bytes(b"Paired devices\n" * repetitions)
+                sender.click("#clear-files")
+                sender.file(path)
+                wait_for("one queued file", lambda: sender.text("#queue-count") == "1")
+                return path
+
+            def send(path):
+                wait_for("one-tap discovery button", lambda: sender.script("""
+                    const button = document.querySelector(arguments[0]);
+                    return button?.textContent.includes("Send now") && !button.disabled;
+                """, choice))
+                sender.click(choice)
+                wait_for("sender to clear the previous result", lambda: sender.text("#transfer-name") != "Transfer complete"
+                         or (inbox / path.name).exists())
+                assert sender.script("return document.querySelector('#peer-code-field').hidden")
+
+            manual = select_file("trusted-manual.txt")
+            send(manual)
+            wait_for("manual file approval", lambda: manual.name in receiver.text("#trust-requests"))
+            assert not (inbox / manual.name).exists()
+            receiver.click("#trust-requests .primary-action")
+            wait_for("approved transfer completion", lambda: sender.text("#transfer-name") == "Transfer complete")
+            assert (inbox / manual.name).read_bytes() == manual.read_bytes()
+
+            receiver.nav("settings")
+            wait_for("receiver trust rules", lambda: receiver.script(
+                "return !!document.querySelector('#trust-peers details')"))
+            receiver.click("#trust-peers summary")
+            receiver.click("#trust-peers input[type=checkbox]")
+            receiver.fill("#trust-peers input[type=number]", 8)
+            receiver.fill("#trust-peers input[type=text]", "txt")
+            receiver.click("#trust-peers button[type=submit]")
+            wait_for("receiver settings persisted", lambda: "Auto-accept rules" in receiver.text("#trust-peers"))
+
+            receiver.call("", method="DELETE")
+            receiver = WebView(port, binary)
+            wait_for("trusted receiver restart", lambda: receiver.script("return !document.querySelector('#boot-screen')"))
+            receiver_port, restarted = start()
+            assert restarted["id"] == identity["id"] and restarted["key"] == identity["key"]
+            assert restarted["challenge"] != identity["challenge"]
+            sender.click("#refresh-receivers")
+            wait_for("rediscovery of the restarted receiver", lambda: sender.script(
+                "return document.querySelector(arguments[0])?.textContent.includes(':' + arguments[1])",
+                choice, str(receiver_port)))
+
+            automatic = select_file("trusted-automatic.txt", 350_000)
+            send(automatic)
+            wait_for("automatic transfer completion", lambda: (inbox / automatic.name).is_file())
+            assert (inbox / automatic.name).read_bytes() == automatic.read_bytes()
+            assert receiver.script("return document.querySelector('#trust-incoming').hidden")
+            wait_for("automatic transfer acknowledged", lambda: sender.text("#transfer-name") == "Transfer complete")
+
+            manual_address = select_file("trusted-manual-address.txt")
+            sender.fill("#peer-ip", "127.0.0.1")
+            sender.fill("#peer-port", receiver_port)
+            assert sender.script("return document.querySelector('#peer-code').value") == ""
+            sender.click("#send-files")
+            wait_for("trusted transfer by address", lambda: (inbox / manual_address.name).is_file())
+            assert (inbox / manual_address.name).read_bytes() == manual_address.read_bytes()
+            wait_for("manual address transfer acknowledged", lambda: sender.text("#transfer-name") == "Transfer complete")
+
+            restricted = select_file("trusted-restricted.bin")
+            send(restricted)
+            wait_for("out-of-policy file approval", lambda: restricted.name in receiver.text("#trust-requests"))
+            receiver.click("#trust-requests .secondary-action")
+            wait_for("declined transfer", lambda: "declined" in sender.text("#send-error"))
+            assert not (inbox / restricted.name).exists()
+
+            receiver.nav("settings")
+            wait_for("restored trust rules", lambda: "Auto-accept rules" in receiver.text("#trust-peers"))
+            receiver.click("#trust-peers summary")
+            receiver.click("#trust-peers .text-button")
+            wait_for("trust revoked", lambda: "Pair a device" in receiver.text("#trust-settings-status"))
+            revoked = select_file("trusted-revoked.txt")
+            send(revoked)
+            wait_for("revoked sender blocked", lambda: "no longer trusted" in sender.text("#send-error"))
+            assert not (inbox / revoked.name).exists()
+            print("PASS pairing codes, one-tap transfers, approval, auto-accept after restart, file rules, and revocation", flush=True)
+        finally:
+            with suppress(OSError):
+                receiver.call("", method="DELETE")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "src-tauri/target/release/pulse_drop")
@@ -390,22 +554,11 @@ def main():
     if not args.binary.is_file() or not args.native_driver or not shutil.which("tauri-driver"):
         parser.error("Build the Linux app and put tauri-driver and WebKitWebDriver on PATH first.")
 
-    port, native_port = unused_ports()
     with tempfile.TemporaryDirectory(prefix="pulsedrop-webview-") as temporary:
         folder = Path(temporary)
-        env = os.environ.copy()
-        for category in ("DATA", "CONFIG", "CACHE"):
-            env[f"XDG_{category}_HOME"] = str(folder / category.lower())
-        with (folder / "driver.log").open("w+") as log:
-            process = subprocess.Popen([
-                "tauri-driver", "--port", str(port), "--native-port", str(native_port),
-                "--native-driver", args.native_driver
-            ], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            app = None
+        with webview_driver(folder, args.native_driver) as port:
+            app = WebView(port, args.binary.resolve())
             try:
-                wait_for_driver(process, port)
-                wait_for_driver(process, native_port)
-                app = WebView(port, args.binary.resolve())
                 wait_for("app startup", lambda: app.script("return !document.querySelector('#boot-screen')"))
                 check_navigation(app)
                 check_theme(app)
@@ -418,26 +571,10 @@ def main():
                 app = WebView(port, args.binary.resolve())
                 wait_for("app restart", lambda: app.script("return !document.querySelector('#boot-screen')"))
                 check_resumed_upload(app, partial)
-            except Exception:
-                log.seek(0)
-                print(log.read(), flush=True)
-                raise
+                check_trusted_transfers(app, args.binary.resolve(), args.native_driver, folder)
             finally:
-                if app:
-                    try:
-                        app.call("", method="DELETE")
-                    except OSError:
-                        pass
-                # Stop the driver and its WebKit/app children before deleting
-                # their temporary profile directory.
-                with suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    with suppress(ProcessLookupError):
-                        os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
+                with suppress(OSError):
+                    app.call("", method="DELETE")
 
 
 if __name__ == "__main__":

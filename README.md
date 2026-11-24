@@ -4,7 +4,7 @@
 
 # PulseDrop
 
-Send files directly between your computer and Android phone over Wi-Fi, Ethernet, or a receiver-hosted hotspot. PulseDrop discovers nearby receivers and uses a six-digit pairing code. Transfers stay on your network without cloud storage or an account.
+Send files directly between your computer and Android phone over Wi-Fi, Ethernet, or a receiver-hosted hotspot. PulseDrop discovers nearby receivers and lets you pair devices once for one-tap sending. Transfers stay on your network without cloud storage or an account.
 
 [Download PulseDrop](https://github.com/shahabbai/PulseDrop/releases/latest) · [Quick start](#quick-start) · [Changelog](CHANGELOG.md)
 
@@ -17,10 +17,22 @@ Installers are available for Windows, Ubuntu, and Android. The experimental macO
 3. On the sending device, open **Send files**, choose your files and the nearby receiver, and enter the receiver’s pairing code. If the receiver doesn’t appear, enter its IP address and port manually.
 4. Press **Send files** and follow progress on either device. Completed files appear in the receiver’s Inbox.
 
+### Trusted devices
+
+1. On the receiver, open **Receive files** and start receiving.
+2. On the sender, select the receiver in **Send files**, enter its six-digit code, and choose **Pair for next time**. You can pair before adding files.
+3. Compare the verification code on both screens. If they match, confirm first on the receiver, then on the sender.
+4. Next time, add your files and tap **Send now** beside that device. In **Enter address manually**, you can leave the pairing code blank to use the saved trust. Trusted transfers work on the same network and after joining a hotspot.
+
+The receiver approves each file by default. Under **Settings → Trusted devices**, open a device to enable **Automatically accept files** and set a maximum size per file and an optional list of filename extensions. Files outside the rules still need approval. **Forget device** removes that device’s trust on your side. Both devices need a build with trusted-device support to pair. The existing six-digit code still works for one-off transfers.
+
+Trusted transfers authenticate paired device identities and verify each chunk. Files still travel over local HTTP.
+
 ## Features
 
 - Send one or more files from PC to phone or phone to PC.
 - Start a receiver on any device and share its IP, port, and 6-digit pairing code.
+- Pair and remember devices for one-tap sending, with optional automatic acceptance per device.
 - Automatically discover active receivers on the LAN and select one to fill its IP and port.
 - Transfer without a router or internet using **Hotspot**: create a local-only hotspot on Android 8+ or a supported Linux receiver, then join it on the sender. Supported Windows systems can create an adaptive 5 GHz/2.4 GHz Mobile hotspot; Windows may require a sharing uplink and Wi-Fi control permission. macOS supports joining another device’s hotspot. See [hotspot transfers and platform support](docs/hotspot-transfer.md).
 - On Android 10+, Linux, Windows and macOS, find nearby Wi-Fi inside PulseDrop or scan the other device’s QR, then choose **Connect**. The QR fills the Wi-Fi password and receiver details without typing them. You can also share a system-created WPA2 hotspot by QR.
