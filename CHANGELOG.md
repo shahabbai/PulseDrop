@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Add a Liquid Glass button highlight that follows the mouse in Light and Dark themes.
+- Fix a WebKitGTK shutdown crash on Ubuntu by preferring Mesa EGL when both Mesa and NVIDIA EGL are installed.
+
 ## 1.0.0
 
 - Redesign PulseDrop with refractive navigation and controls, readable transfer panels, and refreshed Light and Dark themes.

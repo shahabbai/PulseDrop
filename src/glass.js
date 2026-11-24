@@ -1,5 +1,65 @@
 /** @typedef {import("./vendor/liquid-glass/engine").GlassView} GlassView */
 
+/**
+ * @param {HTMLElement} shell
+ * @param {MediaQueryList} contrast
+ */
+function mountButtonHighlights(shell, contrast) {
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  const root = document.documentElement;
+  /** @type {HTMLButtonElement | null} */
+  let active = null;
+  /** @type {{button: HTMLButtonElement, x: number, y: number} | null} */
+  let pointer = null;
+  let frame = 0;
+
+  function clear() {
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    pointer = null;
+    active?.removeAttribute("data-glass-hover");
+    active = null;
+  }
+
+  function reflect() {
+    frame = 0;
+    if (!pointer || !pointer.button.matches(':hover:enabled:not([aria-disabled="true"])')) {
+      clear();
+      return;
+    }
+
+    const { button, x, y } = pointer;
+    if (active !== button) {
+      active?.removeAttribute("data-glass-hover");
+      active = button;
+    }
+
+    const { left, top, width, height } = active.getBoundingClientRect();
+    const percent = (/** @type {number} */ offset, /** @type {number} */ size) =>
+      `${Math.max(0, Math.min(100, 100 * offset / size))}%`;
+    active.style.setProperty("--glass-hover-x", percent(x - left, width));
+    active.style.setProperty("--glass-hover-y", percent(y - top, height));
+    if (!active.hasAttribute("data-glass-hover")) active.dataset.glassHover = "";
+  }
+
+  shell.addEventListener("pointermove", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("button") : null;
+    if (!button || event.pointerType !== "mouse" || reducedMotion.matches || contrast.matches || root.classList.contains("reduce-motion")) {
+      clear();
+      return;
+    }
+    pointer = { button, x: event.clientX, y: event.clientY };
+    if (!frame) frame = requestAnimationFrame(reflect);
+  }, { passive: true });
+  shell.addEventListener("pointerleave", clear);
+  shell.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "mouse") clear();
+  }, { passive: true });
+  window.addEventListener("blur", clear);
+  reducedMotion.addEventListener("change", clear);
+  contrast.addEventListener("change", clear);
+}
+
 /** @param {CanvasRenderingContext2D} ctx @param {CSSStyleDeclaration} colors */
 function paintScene(ctx, colors) {
   const color = (/** @type {string} */ name) => colors.getPropertyValue(name).trim();
@@ -55,11 +115,13 @@ function paintScene(ctx, colors) {
 
 /** @param {HTMLElement} shell */
 export function mountGlass(shell) {
+  const contrast = matchMedia("(prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active)");
+  mountButtonHighlights(shell, contrast);
+
   const scene = shell.querySelector("canvas.glass-scene");
   const sceneContext = scene instanceof HTMLCanvasElement && scene.getContext("2d");
   if (!sceneContext) return;
 
-  const contrast = matchMedia("(prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active)");
   const root = document.documentElement;
   /** @type {Map<HTMLElement, GlassView>} */
   const views = new Map();
