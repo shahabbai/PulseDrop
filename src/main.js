@@ -12,6 +12,9 @@ import { version } from "../package.json";
 
 const native = window.PulseDropNative;
 const { invoke, android: isAndroidRuntime } = native;
+const platformNames = new Map([
+  ["linux", "Linux"], ["windows", "Windows"], ["macos", "macOS"], ["android", "Android"], ["ios", "iOS"]
+]);
 const bootScreen = document.querySelector("#boot-screen");
 
 function hideBootScreen() {
@@ -174,7 +177,7 @@ function renderDiscoveredReceivers() {
     const name = document.createElement("strong");
     name.textContent = peer.name;
     const address = document.createElement("small");
-    address.textContent = `${peer.platform} · ${peer.ip}:${peer.port}`;
+    address.textContent = `${platformNames.get(peer.platform) ?? peer.platform} · ${peer.ip}:${peer.port}`;
     info.append(name, address);
     const action = document.createElement("span");
     action.className = "receiver-choice-action";
@@ -458,7 +461,9 @@ function renderReceiver() {
   els.receiverState.textContent = active ? "Online" : "Offline";
   els.receiverSession.classList.toggle("is-live", active);
   els.receiverStateTitle.textContent = active ? "Ready to receive" : "Ready when you are";
-  els.receiverStateDescription.textContent = active ? "Select this device on your sender, then enter the pairing code below." : "Start receiving to make this device visible on your network.";
+  els.receiverStateDescription.textContent = active
+    ? `Choose “${state.receiver.name}” on your sender, then enter the pairing code below.`
+    : "Start receiving to make this device visible on your network.";
   els.navReceiverIndicator.hidden = !active;
   els.sessionIp.textContent = receiverIp || "--";
   els.sessionPort.textContent = active && state.receiver.port ? state.receiver.port : "--";
@@ -649,7 +654,7 @@ async function loadDeviceProfile() {
     const name = native.deviceName() || profile.name;
     els.deviceName.textContent = name;
     els.deviceCaption.hidden = name === "This device";
-    els.devicePlatform.textContent = `${profile.platform} ${profile.arch}`;
+    els.devicePlatform.textContent = platformNames.get(profile.platform) ?? profile.platform;
     els.localIp.textContent = state.selectedIp || "No network";
     els.localIp.title = state.networkIps.map((address) => address.label || address.ip).join("\n");
     renderNetworkChoices();

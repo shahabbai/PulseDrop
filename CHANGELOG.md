@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Show the desktop account name in device labels and receiver discovery on LAN and hotspots.
+
 ## 1.0.1
 
 - Add a Liquid Glass button highlight that follows the mouse in Light and Dark themes.

@@ -8,6 +8,7 @@ export type NetworkAddress = {
   is_vpn_like: boolean;
 };
 export type Receiver = {
+  name: string;
   ip_address: string | null;
   ip_addresses: NetworkAddress[];
   port: number;

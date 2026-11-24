@@ -1,6 +1,6 @@
 {
   "name": "tauri-file-transfer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Cross-platform local network file transfer app built with Tauri.",
   "type": "module",

@@ -174,6 +174,7 @@ struct ReceiverState {
 
 struct ReceiverRuntime {
     transfers: std::sync::Arc<transfers::Transfers>,
+    name: String,
     port: u16,
     code: String,
     inbox_dir: PathBuf,
@@ -202,6 +203,7 @@ struct DeviceProfile {
 
 #[derive(Clone, Serialize)]
 struct ReceiveSession {
+    name: String,
     ip_address: Option<String>,
     ip_addresses: Vec<NetworkAddress>,
     port: u16,
@@ -298,19 +300,12 @@ fn start_receiver(
         .map(|_| state.resumes.pending(&inbox_dir).unwrap_or_default())
         .unwrap_or_default();
 
-    let name: String = receiver_name
-        .unwrap_or_else(device_name)
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(32)
-        .collect();
+    let name = receiver_name
+        .map(|name| normalized_device_name(&name).unwrap_or_else(|| "PulseDrop device".into()))
+        .unwrap_or_else(device_name);
     let (discovery, discovery_error) = match discovery::Responder::start(discovery::Advertisement {
         id: discovery_state.id.clone(),
-        name: if name.trim().is_empty() {
-            "PulseDrop device".into()
-        } else {
-            name
-        },
+        name: name.clone(),
         platform: std::env::consts::OS.to_string(),
         port,
     }) {
@@ -332,6 +327,7 @@ fn start_receiver(
 
     let active = ReceiverRuntime {
         transfers,
+        name,
         port,
         code,
         inbox_dir,
@@ -1265,6 +1261,7 @@ fn session_from_runtime(runtime: &ReceiverRuntime) -> ReceiveSession {
         .or_else(default_route_ip_address);
 
     ReceiveSession {
+        name: runtime.name.clone(),
         ip_address,
         ip_addresses,
         port: runtime.port,
@@ -1411,11 +1408,84 @@ fn default_route_ip_address() -> Option<String> {
 }
 
 fn device_name() -> String {
-    std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .ok()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "This device".to_string())
+    #[cfg(target_os = "linux")]
+    let (account, host) = (
+        webkit2gtk::glib::user_name().into_string().ok(),
+        Some(webkit2gtk::glib::host_name().to_string()),
+    );
+    #[cfg(target_os = "windows")]
+    let (account, host) = (
+        std::env::var("USERNAME").ok(),
+        std::env::var("COMPUTERNAME").ok(),
+    );
+    #[cfg(target_os = "macos")]
+    let (account, host) = (
+        std::env::var("USER")
+            .ok()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| std::env::var("LOGNAME").ok()),
+        std::env::var("HOSTNAME").ok(),
+    );
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    let (account, host) = (
+        None::<String>,
+        std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .ok(),
+    );
+
+    format_device_name(account.as_deref(), host.as_deref())
+}
+
+fn format_device_name(account: Option<&str>, host: Option<&str>) -> String {
+    match (
+        account.and_then(normalized_device_name),
+        host.and_then(normalized_device_name),
+    ) {
+        (Some(account), Some(host)) if !account.eq_ignore_ascii_case(&host) => {
+            normalized_device_name(&format!("{account} · {host}")).unwrap_or(account)
+        }
+        (Some(name), _) | (None, Some(name)) => name,
+        (None, None) => "This device".into(),
+    }
+}
+
+fn normalized_device_name(value: &str) -> Option<String> {
+    let mut name = String::new();
+    for letter in value.trim().chars().filter(|letter| !letter.is_control()) {
+        if name.len() + letter.len_utf8() > discovery::MAX_RECEIVER_NAME_BYTES {
+            break;
+        }
+        name.push(letter);
+    }
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+#[cfg(test)]
+mod device_name_tests {
+    use super::*;
+
+    #[test]
+    fn device_label_prefers_the_account_and_keeps_a_distinct_hostname() {
+        assert_eq!(
+            format_device_name(Some(" alex "), Some("Studio PC")),
+            "alex · Studio PC"
+        );
+        assert_eq!(format_device_name(Some("alex"), Some("ALEX")), "alex");
+        assert_eq!(format_device_name(Some("alex"), None), "alex");
+        assert_eq!(format_device_name(Some("\n\0"), Some("laptop")), "laptop");
+        assert_eq!(format_device_name(None, None), "This device");
+    }
+
+    #[test]
+    fn receiver_name_fits_the_discovery_packet_limit_and_removes_controls() {
+        let name = normalized_device_name(&format!(" Ana\0 · {} ", "💻".repeat(50))).unwrap();
+        assert!(name.starts_with("Ana · "));
+        assert!(name.len() <= discovery::MAX_RECEIVER_NAME_BYTES);
+        assert!(name.ends_with('💻'));
+        assert!(!name.chars().any(char::is_control));
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

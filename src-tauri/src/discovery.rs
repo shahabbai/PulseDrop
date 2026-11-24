@@ -14,6 +14,7 @@ use std::{
 };
 
 pub const DISCOVERY_PORT: u16 = 53613;
+pub const MAX_RECEIVER_NAME_BYTES: usize = 128;
 const MAX_PACKET: usize = 1024;
 const MAX_PEERS: usize = 64;
 
@@ -268,7 +269,7 @@ fn parse_receiver(
         || !peer.id.bytes().all(|b| b.is_ascii_hexdigit())
         || peer.port == 0
         || peer.name.trim().is_empty()
-        || peer.name.len() > 128
+        || peer.name.len() > MAX_RECEIVER_NAME_BYTES
         || peer.name.chars().any(char::is_control)
         || peer.platform.is_empty()
         || peer.platform.len() > 32
