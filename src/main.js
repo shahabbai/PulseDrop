@@ -13,6 +13,7 @@ import { version } from "../package.json";
 
 const native = window.PulseDropNative;
 const { invoke, android: isAndroidRuntime } = native;
+const viewOrder = ["home", "send", "receive", "settings"];
 const platformNames = new Map([
   ["linux", "Linux"], ["windows", "Windows"], ["macos", "macOS"], ["android", "Android"], ["ios", "iOS"]
 ]);
@@ -26,6 +27,7 @@ function hideBootScreen() {
 
 const state = {
   activeView: "home",
+  historyDepth: 0,
   files: [],
   receiver: null,
   selectedIp: null,
@@ -104,6 +106,8 @@ const els = {
   pairDevice: document.querySelector("#trust-pair"),
   trustedSelection: document.querySelector("#trust-selected"),
   receiverList: document.querySelector("#receiver-list"),
+  savedReceivers: document.querySelector("#saved-receivers"),
+  savedReceiverList: document.querySelector("#saved-receiver-list"),
   discoveryStatus: document.querySelector("#discovery-status"),
   refreshReceivers: document.querySelector("#refresh-receivers"),
   receiverDiscoveryStatus: document.querySelector("#receiver-discovery-status"),
@@ -217,6 +221,23 @@ function renderDiscoveredReceivers() {
     els.receiverList.append(row);
     if (focusedId === peer.id) button.focus({ preventScroll: true });
   }
+
+  const nearbyIds = new Set(state.discoveredReceivers.map((peer) => peer.id));
+  const savedRows = [];
+  for (const peer of trustedUI.savedPeers()) {
+    if (nearbyIds.has(peer.id)) continue;
+    const row = document.createElement("li");
+    row.className = "saved-receiver";
+    row.dataset.peerId = peer.id;
+    const name = document.createElement("strong");
+    name.textContent = peer.name;
+    const status = document.createElement("small");
+    status.textContent = "Waiting for receiver";
+    row.append(name, status);
+    savedRows.push(row);
+  }
+  els.savedReceiverList.replaceChildren(...savedRows);
+  els.savedReceivers.hidden = savedRows.length === 0;
 }
 
 function updateDiscoveryActivity() {
@@ -315,7 +336,14 @@ function writeViewHistory(view, replaceHistory) {
 function setView(mode, options = {}) {
   const nextView = normalizeView(mode);
   const isHome = nextView === "home";
-  if (state.activeView !== nextView) state.scrollPositions[state.activeView] = els.mainContent.scrollTop;
+  const previousView = state.activeView;
+  if (previousView !== nextView) {
+    state.scrollPositions[previousView] = els.mainContent.scrollTop;
+    if (isAndroidRuntime && options.focus !== false) {
+      els.appShell.dataset.navigationDirection = options.direction
+        ?? (viewOrder.indexOf(nextView) > viewOrder.indexOf(previousView) ? "forward" : "backward");
+    }
+  }
   state.activeView = nextView;
   if (nextView !== "send") els.dropZone.classList.remove("dragging");
   hotspotUI.viewChanged(nextView);
@@ -336,6 +364,7 @@ function setView(mode, options = {}) {
   if (options.updateHistory !== false) {
     writeViewHistory(nextView, Boolean(options.replaceHistory));
   }
+  state.historyDepth = window.history.state?.depth ?? 0;
 
   if (nextView === "settings") settingsUI.refresh();
   if (nextView !== "home") void trustedUI.refresh();
@@ -907,7 +936,10 @@ function bindEvents() {
 
   window.addEventListener("popstate", (event) => {
     const nextView = event.state && event.state.view ? event.state.view : viewFromLocation();
-    setView(nextView, { updateHistory: false });
+    const depth = event.state?.depth;
+    const direction = depth === undefined || depth === state.historyDepth
+      ? undefined : depth < state.historyDepth ? "backward" : "forward";
+    setView(nextView, { updateHistory: false, direction });
   });
   window.addEventListener("hashchange", () => {
     if (!/^#(home|send|receive|settings)$/.test(window.location.hash)) return;
@@ -1075,8 +1107,10 @@ const updateUI = mountUpdater({
 });
 
 bindEvents();
+if (isAndroidRuntime) els.appShell.dataset.platform = "android";
 document.querySelectorAll("[data-app-version]").forEach((element) => { element.textContent = `v${version}`; });
 setView(viewFromLocation(), { replaceHistory: true, focus: false });
+void trustedUI.refresh();
 renderFiles();
 renderReceiver();
 renderActivities();

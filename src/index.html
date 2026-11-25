@@ -195,6 +195,10 @@
                   <div class="discovery-meta"><span class="status-dot" aria-hidden="true"></span><span>Nearby devices</span><span class="scan-indicator" id="scan-indicator" hidden></span></div>
                   <p class="discovery-status" id="discovery-status" role="status" aria-live="polite">Looking for receivers on your network…</p>
                   <ul class="receiver-list" id="receiver-list" aria-label="Nearby receivers"></ul>
+                  <section id="saved-receivers" aria-labelledby="saved-receivers-heading" hidden>
+                    <h3 class="discovery-meta" id="saved-receivers-heading">Saved trusted devices</h3>
+                    <ul class="receiver-list" id="saved-receiver-list"></ul>
+                  </section>
                   <details class="disclosure manual-connection" id="manual-connection"><summary>Enter address manually<svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg></summary>
                     <div class="peer-grid">
                       <div class="field"><label for="peer-ip">Receiver IP address</label><input id="peer-ip" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.42" aria-describedby="peer-ip-error"/><small class="field-error" id="peer-ip-error" hidden></small></div>
@@ -203,7 +207,7 @@
                   </details>
                   <div class="pairing-field field" id="peer-code-field"><label for="peer-code">Pairing code</label><input id="peer-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6-digit code" aria-describedby="peer-code-help peer-code-error"/><small id="peer-code-help">Enter the code shown on the receiving device.</small><small class="field-error" id="peer-code-error" hidden></small></div>
                   <div class="trust-pair-action" id="trust-pair-action" hidden>
-                    <button class="text-button" type="button" id="trust-pair">Pair for next time</button>
+                    <button class="secondary-action" type="button" id="trust-pair"><svg class="icon" aria-hidden="true"><use href="#icon-shield"/></svg>Pair for next time</button>
                     <span id="trust-selected" hidden></span>
                   </div>
                   <div class="destination-footer"><p id="send-hint">Add files and choose a receiver to get started.</p><button class="primary-action" type="button" id="send-files" disabled><svg class="icon" aria-hidden="true"><use href="#icon-send"/></svg><span>Send files</span></button><button class="secondary-action cancel-action" type="button" id="cancel-send" hidden>Cancel transfer</button></div>

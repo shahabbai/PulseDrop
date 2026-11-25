@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1
+
+- Add directional page transitions and touch feedback on Android.
+- Make **Pair for next time** a full-width button on the Send page.
+- Show saved trusted devices on Send after reopening PulseDrop, including while they wait to receive.
+
 ## 1.1.0
 
 - Pair trusted devices once and send files with one tap over LAN or a hotspot.

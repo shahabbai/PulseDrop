@@ -213,6 +213,7 @@ export function mountTrustedDevices({ invoke, isReceiveView, canPoll, showToast,
         pairConfirm.disabled = true;
         try {
           await request.remember();
+          await loading;
           await refresh();
           paired(address, [...peers.values()].find((peer) => peer.key === request.key));
           if (dialog.open && pairLifetime === lifetime) dialog.close();
@@ -242,5 +243,5 @@ export function mountTrustedDevices({ invoke, isReceiveView, canPoll, showToast,
     });
   }
 
-  return { client, find: (id) => peers.get(id), pair, refresh };
+  return { client, find: (id) => peers.get(id), savedPeers: () => peers.values(), pair, refresh };
 }

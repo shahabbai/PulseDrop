@@ -42,11 +42,20 @@ def unused_ports():
 
 class WebView:
     def __init__(self, port, binary):
-        self.base = f"http://127.0.0.1:{port}/"
+        self.origin = f"http://127.0.0.1:{port}/"
+        self.binary = binary
+        self.open()
+
+    def open(self):
+        self.base = self.origin
         result = self.call("session", {"capabilities": {"alwaysMatch": {
-            "tauri:options": {"application": str(binary)}
+            "tauri:options": {"application": str(self.binary)}
         }}})
         self.base += f"session/{result['sessionId']}/"
+
+    def restart(self):
+        self.call("", method="DELETE")
+        self.open()
 
     def call(self, path, data=None, method="POST"):
         payload = json.dumps(data).encode() if data is not None else None
@@ -446,6 +455,13 @@ def check_trusted_transfers(sender, binary, native_driver, directory):
             sender.fill("#peer-code", code)
             wait_for("pair action", lambda: sender.script(
                 "return !document.querySelector('#trust-pair-action').hidden"))
+            assert sender.script("""
+                const button = document.querySelector('#trust-pair');
+                const style = getComputedStyle(button);
+                return button.getBoundingClientRect().height >= 44 &&
+                    style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+                    style.borderTopColor !== 'rgba(0, 0, 0, 0)';
+            """)
             sender.click("#trust-pair")
             wait_for("pairing codes", lambda: receiver.text("#trust-requests .trust-code")
                      if receiver.script("return !!document.querySelector('#trust-requests .trust-code')") else None)
@@ -498,7 +514,19 @@ def check_trusted_transfers(sender, binary, native_driver, directory):
             wait_for("receiver settings persisted", lambda: "Auto-accept rules" in receiver.text("#trust-peers"))
 
             receiver.call("", method="DELETE")
-            receiver = WebView(port, binary)
+            sender.restart()
+            wait_for("trusted sender restart", lambda: sender.script("return !document.querySelector('#boot-screen')"))
+            sender.nav("send")
+            saved = f'#saved-receivers:not([hidden]) [data-peer-id="{identity["id"]}"]'
+            wait_for("saved device visible on Send before discovery", lambda: sender.script(
+                "return document.querySelector(arguments[0])?.textContent.includes('Waiting for receiver')", saved))
+            sender.nav("settings")
+            setting = f'#trust-peers [data-peer-id="{identity["id"]}"]'
+            wait_for("saved device in Settings after restart", lambda: sender.script(
+                "return !!document.querySelector(arguments[0])", setting))
+            sender.nav("send")
+
+            receiver.open()
             wait_for("trusted receiver restart", lambda: receiver.script("return !document.querySelector('#boot-screen')"))
             receiver_port, restarted = start()
             assert restarted["id"] == identity["id"] and restarted["key"] == identity["key"]
@@ -507,6 +535,7 @@ def check_trusted_transfers(sender, binary, native_driver, directory):
             wait_for("rediscovery of the restarted receiver", lambda: sender.script(
                 "return document.querySelector(arguments[0])?.textContent.includes(':' + arguments[1])",
                 choice, str(receiver_port)))
+            assert sender.script("return !document.querySelector(arguments[0])", saved)
 
             automatic = select_file("trusted-automatic.txt", 350_000)
             send(automatic)
@@ -540,7 +569,7 @@ def check_trusted_transfers(sender, binary, native_driver, directory):
             send(revoked)
             wait_for("revoked sender blocked", lambda: "no longer trusted" in sender.text("#send-error"))
             assert not (inbox / revoked.name).exists()
-            print("PASS pairing codes, one-tap transfers, approval, auto-accept after restart, file rules, and revocation", flush=True)
+            print("PASS pairing, saved devices after both apps restart, one-tap transfers, approval, file rules, and revocation", flush=True)
         finally:
             with suppress(OSError):
                 receiver.call("", method="DELETE")
